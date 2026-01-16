@@ -3,7 +3,7 @@ import { createClient } from "@libsql/client";
 import * as schema from "./db/schema";
 
 const client = createClient({
-  url: process.env.DATABASE_URL!,
+  url: process.env.DATABASE_URL || "file:local.db",
   authToken: process.env.DATABASE_AUTH_TOKEN,
 });
 
