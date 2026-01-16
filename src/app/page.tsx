@@ -22,6 +22,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Upload,
   Trash2,
   Download,
@@ -40,9 +47,17 @@ import {
   Unlink,
   AlertTriangle,
   Check,
+  LogIn,
+  LogOut,
+  Save,
+  Cloud,
+  User,
+  FolderOpen,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import { signIn, signOut, useSession } from "@/lib/auth-client";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type RuleType = "doesnt_mix" | "only_mix" | "always_pairs" | "appears_at_least";
 
@@ -90,6 +105,7 @@ const RULE_COLORS: Record<RuleType, "default" | "secondary" | "destructive" | "o
 };
 
 export default function NFTGenerator() {
+  const { data: session, isPending: isSessionLoading } = useSession();
   const [categories, setCategories] = useState<TraitCategory[]>([]);
   const [generatedNFTs, setGeneratedNFTs] = useState<GeneratedNFT[]>([]);
   const [collectionSize, setCollectionSize] = useState(10);
@@ -97,6 +113,9 @@ export default function NFTGenerator() {
   const [canvasSize, setCanvasSize] = useState({ width: 512, height: 512 });
   const [collectionName, setCollectionName] = useState("My NFT Collection");
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedCollections, setSavedCollections] = useState<{ id: string; name: string; createdAt: string }[]>([]);
+  const [loadingCollections, setLoadingCollections] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
@@ -540,6 +559,94 @@ export default function NFTGenerator() {
     setGeneratedNFTs([]);
   };
 
+  // Auth functions
+  const handleGoogleLogin = async () => {
+    await signIn.social({
+      provider: "google",
+      callbackURL: window.location.href,
+    });
+  };
+
+  const handleLogout = async () => {
+    await signOut();
+  };
+
+  // Save collection to database
+  const saveCollection = async () => {
+    if (!session?.user || generatedNFTs.length === 0) return;
+
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/collections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: collectionName,
+          canvasWidth: canvasSize.width,
+          canvasHeight: canvasSize.height,
+          categories,
+          generatedNFTs,
+        }),
+      });
+
+      if (response.ok) {
+        alert("Collection saved successfully!");
+        fetchCollections();
+      } else {
+        alert("Failed to save collection");
+      }
+    } catch (error) {
+      console.error("Error saving collection:", error);
+      alert("Failed to save collection");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Fetch user's saved collections
+  const fetchCollections = async () => {
+    if (!session?.user) return;
+
+    setLoadingCollections(true);
+    try {
+      const response = await fetch("/api/collections");
+      if (response.ok) {
+        const data = await response.json();
+        setSavedCollections(data.collections);
+      }
+    } catch (error) {
+      console.error("Error fetching collections:", error);
+    } finally {
+      setLoadingCollections(false);
+    }
+  };
+
+  // Load a saved collection
+  const loadCollection = async (collectionId: string) => {
+    try {
+      const response = await fetch(`/api/collections/${collectionId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setCollectionName(data.collection.name);
+        setCanvasSize({
+          width: data.collection.canvasWidth,
+          height: data.collection.canvasHeight,
+        });
+        setCategories(data.collection.categories);
+        setGeneratedNFTs(data.generatedNFTs);
+      }
+    } catch (error) {
+      console.error("Error loading collection:", error);
+    }
+  };
+
+  // Fetch collections when user logs in
+  useEffect(() => {
+    if (session?.user) {
+      fetchCollections();
+    }
+  }, [session?.user]);
+
   useEffect(() => {
     if (canvasRef.current) {
       canvasRef.current.width = canvasSize.width;
@@ -618,6 +725,64 @@ export default function NFTGenerator() {
                     className="w-20 h-8 text-center bg-transparent border-border/50"
                   />
                 </div>
+
+                {/* Auth Section */}
+                {isSessionLoading ? (
+                  <div className="w-10 h-10 rounded-full bg-secondary/50 animate-pulse" />
+                ) : session?.user ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="gap-2 px-2">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={session.user.image || ""} alt={session.user.name || ""} />
+                          <AvatarFallback>
+                            <User className="w-4 h-4" />
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm hidden sm:inline">{session.user.name}</span>
+                        <ChevronDown className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <div className="px-2 py-1.5">
+                        <p className="text-sm font-medium">{session.user.name}</p>
+                        <p className="text-xs text-muted-foreground">{session.user.email}</p>
+                      </div>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem disabled={loadingCollections} onClick={() => fetchCollections()}>
+                        <FolderOpen className="w-4 h-4 mr-2" />
+                        My Collections
+                        {savedCollections.length > 0 && (
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {savedCollections.length}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                      {savedCollections.length > 0 && (
+                        <>
+                          <DropdownMenuSeparator />
+                          {savedCollections.slice(0, 5).map((col) => (
+                            <DropdownMenuItem key={col.id} onClick={() => loadCollection(col.id)}>
+                              <Cloud className="w-4 h-4 mr-2" />
+                              <span className="truncate">{col.name}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </>
+                      )}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleLogout} className="text-destructive">
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Logout
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <Button onClick={handleGoogleLogin} variant="outline" className="gap-2">
+                    <LogIn className="w-4 h-4" />
+                    <span className="hidden sm:inline">Login with Google</span>
+                    <span className="sm:hidden">Login</span>
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -951,6 +1116,22 @@ export default function NFTGenerator() {
                       </CardTitle>
                       {generatedNFTs.length > 0 && (
                         <div className="flex items-center gap-2">
+                          {session?.user && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={saveCollection}
+                              disabled={isSaving}
+                              className="gap-2"
+                            >
+                              {isSaving ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Save className="w-4 h-4" />
+                              )}
+                              Save to Cloud
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
