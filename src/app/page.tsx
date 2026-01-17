@@ -56,8 +56,9 @@ import {
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { signIn, signOut, useSession } from "@/lib/auth-client";
+import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 type RuleType = "doesnt_mix" | "only_mix" | "always_pairs" | "appears_at_least";
 
@@ -105,13 +106,15 @@ const RULE_COLORS: Record<RuleType, "default" | "secondary" | "destructive" | "o
 };
 
 export default function NFTGenerator() {
-  const { data: session, isPending: isSessionLoading } = useSession();
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
+  const supabase = createClient();
   const [categories, setCategories] = useState<TraitCategory[]>([]);
   const [generatedNFTs, setGeneratedNFTs] = useState<GeneratedNFT[]>([]);
   const [collectionSize, setCollectionSize] = useState(10);
   const [isGenerating, setIsGenerating] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ width: 512, height: 512 });
-  const [collectionName, setCollectionName] = useState("My NFT Collection");
+  const [collectionName, setCollectionName] = useState("SHIREN Collection");
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [savedCollections, setSavedCollections] = useState<{ id: string; name: string; createdAt: string }[]>([]);
@@ -127,6 +130,24 @@ export default function NFTGenerator() {
   const [newRuleType, setNewRuleType] = useState<RuleType>("doesnt_mix");
   const [newRuleTargets, setNewRuleTargets] = useState<string[]>([]);
   const [newRuleValue, setNewRuleValue] = useState(1);
+
+  // Supabase auth listener
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      setIsSessionLoading(false);
+    };
+    
+    getUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setIsSessionLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase.auth]);
 
   const getAllTraits = useCallback(() => {
     return categories.flatMap((cat) =>
@@ -561,19 +582,21 @@ export default function NFTGenerator() {
 
   // Auth functions
   const handleGoogleLogin = async () => {
-    await signIn.social({
+    await supabase.auth.signInWithOAuth({
       provider: "google",
-      callbackURL: window.location.href,
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
   };
 
   const handleLogout = async () => {
-    await signOut();
+    await supabase.auth.signOut();
   };
 
   // Save collection to database
   const saveCollection = async () => {
-    if (!session?.user || generatedNFTs.length === 0) return;
+    if (!user || generatedNFTs.length === 0) return;
 
     setIsSaving(true);
     try {
@@ -605,7 +628,7 @@ export default function NFTGenerator() {
 
   // Fetch user's saved collections
   const fetchCollections = async () => {
-    if (!session?.user) return;
+    if (!user) return;
 
     setLoadingCollections(true);
     try {
@@ -642,10 +665,11 @@ export default function NFTGenerator() {
 
   // Fetch collections when user logs in
   useEffect(() => {
-    if (session?.user) {
+    if (user) {
       fetchCollections();
     }
-  }, [session?.user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -729,24 +753,24 @@ export default function NFTGenerator() {
                 {/* Auth Section */}
                 {isSessionLoading ? (
                   <div className="w-10 h-10 rounded-full bg-secondary/50 animate-pulse" />
-                ) : session?.user ? (
+                ) : user ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" className="gap-2 px-2">
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={session.user.image || ""} alt={session.user.name || ""} />
+                          <AvatarImage src={user.user_metadata?.avatar_url || ""} alt={user.user_metadata?.full_name || ""} />
                           <AvatarFallback>
                             <User className="w-4 h-4" />
                           </AvatarFallback>
                         </Avatar>
-                        <span className="text-sm hidden sm:inline">{session.user.name}</span>
+                        <span className="text-sm hidden sm:inline">{user.user_metadata?.full_name || user.email}</span>
                         <ChevronDown className="w-4 h-4" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
                       <div className="px-2 py-1.5">
-                        <p className="text-sm font-medium">{session.user.name}</p>
-                        <p className="text-xs text-muted-foreground">{session.user.email}</p>
+                        <p className="text-sm font-medium">{user.user_metadata?.full_name || "User"}</p>
+                        <p className="text-xs text-muted-foreground">{user.email}</p>
                       </div>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem disabled={loadingCollections} onClick={() => fetchCollections()}>
@@ -1116,7 +1140,7 @@ export default function NFTGenerator() {
                       </CardTitle>
                       {generatedNFTs.length > 0 && (
                         <div className="flex items-center gap-2">
-                          {session?.user && (
+                          {user && (
                             <Button
                               variant="outline"
                               size="sm"

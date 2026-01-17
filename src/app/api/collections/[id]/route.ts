@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { nftCollection, generatedNft } from "@/lib/db/schema";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
-import { eq, and } from "drizzle-orm";
+import { createClient } from "@/lib/supabase/server";
 
 // Get a specific collection with its NFTs
 export async function GET(
@@ -11,49 +7,37 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!session?.user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { id } = await params;
 
-    const collection = await db
-      .select()
-      .from(nftCollection)
-      .where(
-        and(
-          eq(nftCollection.id, id),
-          eq(nftCollection.userId, session.user.id)
-        )
-      )
-      .limit(1);
+    const { data: collection, error } = await supabase
+      .from("nft_collections")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .single();
 
-    if (collection.length === 0) {
+    if (error || !collection) {
       return NextResponse.json(
         { error: "Collection not found" },
         { status: 404 }
       );
     }
 
-    const nfts = await db
-      .select()
-      .from(generatedNft)
-      .where(eq(generatedNft.collectionId, id));
-
     return NextResponse.json({
       collection: {
-        ...collection[0],
-        categories: JSON.parse(collection[0].categoriesData),
+        ...collection,
+        canvasWidth: collection.canvas_size?.width || 512,
+        canvasHeight: collection.canvas_size?.height || 512,
+        categories: collection.categories || [],
       },
-      generatedNFTs: nfts.map((nft) => ({
-        id: nft.id,
-        dataUrl: nft.imageData,
-        traits: JSON.parse(nft.traitsData),
-      })),
+      generatedNFTs: collection.generated_nfts || [],
     });
   } catch (error) {
     console.error("Error fetching collection:", error);
@@ -70,28 +54,25 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!session?.user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { id } = await params;
 
-    // First delete all generated NFTs
-    await db.delete(generatedNft).where(eq(generatedNft.collectionId, id));
+    const { error } = await supabase
+      .from("nft_collections")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
 
-    // Then delete the collection
-    await db
-      .delete(nftCollection)
-      .where(
-        and(
-          eq(nftCollection.id, id),
-          eq(nftCollection.userId, session.user.id)
-        )
-      );
+    if (error) {
+      console.error("Error deleting collection:", error);
+      return NextResponse.json({ error: "Failed to delete collection" }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
