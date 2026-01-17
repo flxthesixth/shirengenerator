@@ -692,7 +692,7 @@ export default function NFTGenerator() {
                     NFT Generator
                   </h1>
                   <p className="text-xs text-muted-foreground">
-                    Buat koleksi NFT unik dengan mudah
+                    by flxthesixth.
                   </p>
                 </div>
               </div>
@@ -1058,7 +1058,7 @@ export default function NFTGenerator() {
                         <Input
                           value={collectionName}
                           onChange={(e) => setCollectionName(e.target.value)}
-                          placeholder="My NFT Collection"
+                          placeholder="SHIREN Collection"
                           className="bg-secondary/30 border-border/50"
                         />
                       </div>
