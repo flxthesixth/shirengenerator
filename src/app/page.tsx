@@ -663,10 +663,31 @@ export default function NFTGenerator() {
     }
   };
 
-  // Fetch collections when user logs in
+  // Auto-load last collection when user logs in
+  const loadLastCollection = async () => {
+    if (!user) return;
+
+    try {
+      const response = await fetch("/api/collections");
+      if (response.ok) {
+        const data = await response.json();
+        setSavedCollections(data.collections);
+        
+        // Auto-load the most recent collection
+        if (data.collections && data.collections.length > 0) {
+          const lastCollection = data.collections[0]; // Already sorted by created_at desc
+          await loadCollection(lastCollection.id);
+        }
+      }
+    } catch (error) {
+      console.error("Error auto-loading collection:", error);
+    }
+  };
+
+  // Fetch and auto-load last collection when user logs in
   useEffect(() => {
     if (user) {
-      fetchCollections();
+      loadLastCollection();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -725,29 +746,27 @@ export default function NFTGenerator() {
                 <div className="flex items-center gap-2 bg-secondary/50 rounded-lg px-4 py-2">
                   <Settings className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">Canvas:</span>
-                  <Input
-                    type="number"
-                    value={canvasSize.width}
-                    onChange={(e) =>
-                      setCanvasSize((s) => ({
-                        ...s,
-                        width: parseInt(e.target.value) || 512,
-                      }))
-                    }
-                    className="w-20 h-8 text-center bg-transparent border-border/50"
-                  />
-                  <X className="w-3 h-3 text-muted-foreground" />
-                  <Input
-                    type="number"
-                    value={canvasSize.height}
-                    onChange={(e) =>
-                      setCanvasSize((s) => ({
-                        ...s,
-                        height: parseInt(e.target.value) || 512,
-                      }))
-                    }
-                    className="w-20 h-8 text-center bg-transparent border-border/50"
-                  />
+                  <Select
+                    value={`${canvasSize.width}x${canvasSize.height}`}
+                    onValueChange={(value) => {
+                      const [width, height] = value.split("x").map(Number);
+                      setCanvasSize({ width, height });
+                    }}
+                  >
+                    <SelectTrigger className="w-[180px] h-8 bg-transparent border-border/50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="512x512">512 × 512 (SD)</SelectItem>
+                      <SelectItem value="1024x1024">1024 × 1024 (HD)</SelectItem>
+                      <SelectItem value="1280x720">1280 × 720 (HD 16:9)</SelectItem>
+                      <SelectItem value="1920x1080">1920 × 1080 (Full HD)</SelectItem>
+                      <SelectItem value="2048x2048">2048 × 2048 (2K)</SelectItem>
+                      <SelectItem value="3840x2160">3840 × 2160 (4K)</SelectItem>
+                      <SelectItem value="500x500">500 × 500 (OpenSea)</SelectItem>
+                      <SelectItem value="350x350">350 × 350 (Twitter PFP)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Auth Section */}
