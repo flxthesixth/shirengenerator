@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,8 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import NextLink from "next/link";
+import { useSearchParams } from "next/navigation";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 type RuleType = "doesnt_mix" | "only_mix" | "always_pairs" | "appears_at_least";
@@ -105,10 +107,11 @@ const RULE_COLORS: Record<RuleType, "default" | "secondary" | "destructive" | "o
   appears_at_least: "outline",
 };
 
-export default function NFTGenerator() {
+function NFTGeneratorContent() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const supabase = createClient();
+  const searchParams = useSearchParams();
   const [categories, setCategories] = useState<TraitCategory[]>([]);
   const [generatedNFTs, setGeneratedNFTs] = useState<GeneratedNFT[]>([]);
   const [collectionSize, setCollectionSize] = useState(10);
@@ -667,14 +670,20 @@ export default function NFTGenerator() {
   const loadLastCollection = async () => {
     if (!user) return;
 
+    // Check if there's a specific collection to load from URL
+    const loadId = searchParams.get("load");
+    
     try {
       const response = await fetch("/api/collections");
       if (response.ok) {
         const data = await response.json();
         setSavedCollections(data.collections);
         
-        // Auto-load the most recent collection
-        if (data.collections && data.collections.length > 0) {
+        if (loadId) {
+          // Load specific collection from URL parameter
+          await loadCollection(loadId);
+        } else if (data.collections && data.collections.length > 0) {
+          // Auto-load the most recent collection
           const lastCollection = data.collections[0]; // Already sorted by created_at desc
           await loadCollection(lastCollection.id);
         }
@@ -690,7 +699,7 @@ export default function NFTGenerator() {
       loadLastCollection();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, searchParams]);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -734,7 +743,7 @@ export default function NFTGenerator() {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                    NFT Generator
+                    SHIREN NFT Generator
                   </h1>
                   <p className="text-xs text-muted-foreground">
                     by flxthesixth.
@@ -792,15 +801,17 @@ export default function NFTGenerator() {
                         <p className="text-xs text-muted-foreground">{user.email}</p>
                       </div>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem disabled={loadingCollections} onClick={() => fetchCollections()}>
-                        <FolderOpen className="w-4 h-4 mr-2" />
-                        My Collections
-                        {savedCollections.length > 0 && (
-                          <span className="ml-auto text-xs text-muted-foreground">
-                            {savedCollections.length}
-                          </span>
-                        )}
-                      </DropdownMenuItem>
+                      <NextLink href="/collections">
+                        <DropdownMenuItem>
+                          <FolderOpen className="w-4 h-4 mr-2" />
+                          My Collections
+                          {savedCollections.length > 0 && (
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              {savedCollections.length}
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                      </NextLink>
                       {savedCollections.length > 0 && (
                         <>
                           <DropdownMenuSeparator />
@@ -1458,5 +1469,13 @@ export default function NFTGenerator() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function NFTGenerator() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
+      <NFTGeneratorContent />
+    </Suspense>
   );
 }
