@@ -31,10 +31,13 @@ import {
   Layers,
   Image as ImageIcon,
   ExternalLink,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import Link from "next/link";
+import { useTheme } from "next-themes";
 
 interface SavedCollection {
   id: string;
@@ -54,7 +57,17 @@ export default function CollectionsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<SavedCollection | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const supabase = createClient();
+  const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme(theme === "dark" ? "light" : "dark");
+  };
 
   useEffect(() => {
     const getUser = async () => {
@@ -217,6 +230,20 @@ export default function CollectionsPage() {
                 <p className="text-sm font-medium">{user.user_metadata?.full_name || "User"}</p>
                 <p className="text-xs text-muted-foreground">{user.email}</p>
               </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={toggleTheme}>
+                {mounted && theme === "dark" ? (
+                  <>
+                    <Sun className="w-4 h-4 mr-2" />
+                    Light Mode
+                  </>
+                ) : (
+                  <>
+                    <Moon className="w-4 h-4 mr-2" />
+                    Dark Mode
+                  </>
+                )}
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                 <LogOut className="w-4 h-4 mr-2" />

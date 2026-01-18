@@ -53,6 +53,8 @@ import {
   Cloud,
   User,
   FolderOpen,
+  Sun,
+  Moon,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -60,6 +62,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useTheme } from "next-themes";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 type RuleType = "doesnt_mix" | "only_mix" | "always_pairs" | "appears_at_least";
@@ -112,6 +115,8 @@ function NFTGeneratorContent() {
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [categories, setCategories] = useState<TraitCategory[]>([]);
   const [generatedNFTs, setGeneratedNFTs] = useState<GeneratedNFT[]>([]);
   const [collectionSize, setCollectionSize] = useState(10);
@@ -134,6 +139,11 @@ function NFTGeneratorContent() {
   const [newRuleTargets, setNewRuleTargets] = useState<string[]>([]);
   const [newRuleValue, setNewRuleValue] = useState(1);
 
+  // Prevent hydration mismatch for theme
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Supabase auth listener
   useEffect(() => {
     const getUser = async () => {
@@ -151,6 +161,10 @@ function NFTGeneratorContent() {
 
     return () => subscription.unsubscribe();
   }, [supabase.auth]);
+
+  const toggleTheme = () => {
+    setTheme(theme === "dark" ? "light" : "dark");
+  };
 
   const getAllTraits = useCallback(() => {
     return categories.flatMap((cat) =>
@@ -812,6 +826,19 @@ function NFTGeneratorContent() {
                           )}
                         </DropdownMenuItem>
                       </NextLink>
+                      <DropdownMenuItem onClick={toggleTheme}>
+                        {mounted && theme === "dark" ? (
+                          <>
+                            <Sun className="w-4 h-4 mr-2" />
+                            Light Mode
+                          </>
+                        ) : (
+                          <>
+                            <Moon className="w-4 h-4 mr-2" />
+                            Dark Mode
+                          </>
+                        )}
+                      </DropdownMenuItem>
                       {savedCollections.length > 0 && (
                         <>
                           <DropdownMenuSeparator />
