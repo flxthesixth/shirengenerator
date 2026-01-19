@@ -43,7 +43,7 @@ import {
   Archive,
   RefreshCw,
   X,
-  Link,
+  Link as LinkIcon,
   Unlink,
   AlertTriangle,
   Check,
@@ -554,6 +554,29 @@ function NFTGeneratorContent() {
     }
 
     setIsGenerating(false);
+
+    // Auto-save to cloud when user is logged in
+    if (user && nfts.length > 0) {
+      try {
+        const response = await fetch("/api/collections", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: collectionName,
+            canvasWidth: canvasSize.width,
+            canvasHeight: canvasSize.height,
+            categories,
+            generatedNFTs: nfts,
+          }),
+        });
+
+        if (response.ok) {
+          fetchCollections();
+        }
+      } catch (error) {
+        console.error("Error auto-saving collection:", error);
+      }
+    }
   };
 
   const downloadSingleNFT = (nft: GeneratedNFT, index: number) => {
@@ -1043,7 +1066,7 @@ function NFTGeneratorContent() {
                                                 : "bg-secondary/90 text-foreground"
                                             }`}
                                           >
-                                            <Link className="w-3 h-3" />
+                                            <LinkIcon className="w-3 h-3" />
                                           </button>
                                           {image.rules.length > 0 && (
                                             <div className="absolute bottom-2 left-2 right-2 flex flex-wrap gap-1">
@@ -1306,7 +1329,7 @@ function NFTGeneratorContent() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Link className="w-5 h-5 text-primary" />
+              <LinkIcon className="w-5 h-5 text-primary" />
               Trait Rules - {selectedTrait?.image.name}
             </DialogTitle>
           </DialogHeader>
@@ -1391,7 +1414,7 @@ function NFTGeneratorContent() {
                       </SelectItem>
                       <SelectItem value="only_mix">
                         <div className="flex items-center gap-2">
-                          <Link className="w-4 h-4 text-blue-500" />
+                          <LinkIcon className="w-4 h-4 text-blue-500" />
                           Only Mix With
                         </div>
                       </SelectItem>
