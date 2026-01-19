@@ -750,14 +750,16 @@ function NFTGeneratorContent() {
       const updatedTrait = categories
         .find((c) => c.id === selectedTrait.categoryId)
         ?.images.find((img) => img.id === selectedTrait.image.id);
-      if (updatedTrait) {
+      // Only update if the reference is different (avoid infinite loop)
+      if (updatedTrait && updatedTrait !== selectedTrait.image) {
         setSelectedTrait({
           ...selectedTrait,
           image: updatedTrait,
         });
       }
     }
-  }, [categories, selectedTrait]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories]);
 
   const currentTraitRules = selectedTrait?.image.rules || [];
 
@@ -1330,187 +1332,198 @@ function NFTGeneratorContent() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <LinkIcon className="w-5 h-5 text-primary" />
-              Trait Rules - {selectedTrait?.image.name}
+              Trait Rules - {selectedTrait?.image?.name || "(No trait selected)"}
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto space-y-6 py-4">
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-yellow-500" />
-                Active Rules ({currentTraitRules.length})
-              </h4>
-              {currentTraitRules.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Belum ada rules untuk trait ini
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {currentTraitRules.map((rule) => (
-                    <div
-                      key={rule.id}
-                      className="flex items-center justify-between bg-secondary/30 rounded-lg p-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Badge variant={RULE_COLORS[rule.type]}>
-                          {RULE_LABELS[rule.type]}
-                        </Badge>
-                        {rule.type === "appears_at_least" ? (
-                          <span className="text-sm">
-                            Min: <strong>{rule.value}x</strong> dalam koleksi
-                          </span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {rule.targetTraitIds.map((targetId) => {
-                              const target = getTraitById(targetId);
-                              return target ? (
-                                <Badge
-                                  key={targetId}
-                                  variant="outline"
-                                  className="text-xs"
-                                >
-                                  {target.categoryName}: {target.name}
-                                </Badge>
-                              ) : null;
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeRule(rule.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-border pt-4 space-y-4">
-              <h4 className="text-sm font-medium">Add New Rule</h4>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">
-                    Rule Type
-                  </label>
-                  <Select
-                    value={newRuleType}
-                    onValueChange={(v) => setNewRuleType(v as RuleType)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="doesnt_mix">
-                        <div className="flex items-center gap-2">
-                          <Unlink className="w-4 h-4 text-destructive" />
-                          Doesn&apos;t Mix With
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="only_mix">
-                        <div className="flex items-center gap-2">
-                          <LinkIcon className="w-4 h-4 text-blue-500" />
-                          Only Mix With
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="always_pairs">
-                        <div className="flex items-center gap-2">
-                          <Check className="w-4 h-4 text-primary" />
-                          Always Pairs With
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="appears_at_least">
-                        <div className="flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-yellow-500" />
-                          Appears At Least
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {newRuleType === "appears_at_least" && (
-                  <div className="space-y-2">
-                    <label className="text-sm text-muted-foreground">
-                      Minimum Count
-                    </label>
-                    <Input
-                      type="number"
-                      value={newRuleValue}
-                      onChange={(e) =>
-                        setNewRuleValue(parseInt(e.target.value) || 1)
-                      }
-                      min={1}
-                      max={collectionSize}
-                      className="bg-secondary/30"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {newRuleType !== "appears_at_least" && (
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">
-                    Select Target Traits ({newRuleTargets.length} selected)
-                  </label>
-                  <ScrollArea className="h-48 border border-border rounded-lg p-2">
-                    <div className="space-y-2">
-                      {categories
-                        .filter((c) => c.id !== selectedTrait?.categoryId)
-                        .map((category) => (
-                          <div key={category.id}>
-                            <p className="text-xs font-medium text-muted-foreground mb-1">
-                              {category.name}
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {category.images.map((img) => (
-                                <button
-                                  key={img.id}
-                                  onClick={() => toggleTargetTrait(img.id)}
-                                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-all ${
-                                    newRuleTargets.includes(img.id)
-                                      ? "border-primary bg-primary/10 text-primary"
-                                      : "border-border hover:border-primary/50"
-                                  }`}
-                                >
-                                  <img
-                                    src={img.dataUrl}
-                                    alt={img.name}
-                                    className="w-6 h-6 rounded object-cover"
-                                  />
-                                  {img.name}
-                                  {newRuleTargets.includes(img.id) && (
-                                    <Check className="w-3 h-3" />
-                                  )}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </ScrollArea>
-                </div>
-              )}
-
-              <Button
-                onClick={addRule}
-                disabled={
-                  newRuleType !== "appears_at_least" &&
-                  newRuleTargets.length === 0
-                }
-                className="w-full gap-2"
-              >
-                <Check className="w-4 h-4" />
-                Add Rule
+          {!selectedTrait || !selectedTrait.image ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-destructive py-10">
+              <AlertTriangle className="w-8 h-8 mb-2" />
+              <p className="font-semibold">Trait data tidak ditemukan atau sudah dihapus.</p>
+              <Button variant="outline" className="mt-4" onClick={() => setRuleDialogOpen(false)}>
+                Tutup
               </Button>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="flex-1 overflow-y-auto space-y-6 py-4">
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                    Active Rules ({currentTraitRules.length})
+                  </h4>
+                  {currentTraitRules.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Belum ada rules untuk trait ini
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {currentTraitRules.map((rule) => (
+                        <div
+                          key={rule.id}
+                          className="flex items-center justify-between bg-secondary/30 rounded-lg p-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Badge variant={RULE_COLORS[rule.type]}>
+                              {RULE_LABELS[rule.type]}
+                            </Badge>
+                            {rule.type === "appears_at_least" ? (
+                              <span className="text-sm">
+                                Min: <strong>{rule.value}x</strong> dalam koleksi
+                              </span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {rule.targetTraitIds.map((targetId) => {
+                                  const target = getTraitById(targetId);
+                                  return target ? (
+                                    <Badge
+                                      key={targetId}
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      {target.categoryName}: {target.name}
+                                    </Badge>
+                                  ) : null;
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeRule(rule.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
+                <div className="border-t border-border pt-4 space-y-4">
+                  <h4 className="text-sm font-medium">Add New Rule</h4>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm text-muted-foreground">
+                        Rule Type
+                      </label>
+                      <Select
+                        value={newRuleType}
+                        onValueChange={(v) => setNewRuleType(v as RuleType)}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="doesnt_mix">
+                            <div className="flex items-center gap-2">
+                              <Unlink className="w-4 h-4 text-destructive" />
+                              Doesn&apos;t Mix With
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="only_mix">
+                            <div className="flex items-center gap-2">
+                              <LinkIcon className="w-4 h-4 text-blue-500" />
+                              Only Mix With
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="always_pairs">
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-primary" />
+                              Always Pairs With
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="appears_at_least">
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                              Appears At Least
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {newRuleType === "appears_at_least" && (
+                      <div className="space-y-2">
+                        <label className="text-sm text-muted-foreground">
+                          Minimum Count
+                        </label>
+                        <Input
+                          type="number"
+                          value={newRuleValue}
+                          onChange={(e) =>
+                            setNewRuleValue(parseInt(e.target.value) || 1)
+                          }
+                          min={1}
+                          max={collectionSize}
+                          className="bg-secondary/30"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {newRuleType !== "appears_at_least" && (
+                    <div className="space-y-2">
+                      <label className="text-sm text-muted-foreground">
+                        Select Target Traits ({newRuleTargets.length} selected)
+                      </label>
+                      <ScrollArea className="h-48 border border-border rounded-lg p-2">
+                        <div className="space-y-2">
+                          {categories
+                            .filter((c) => c.id !== selectedTrait.categoryId)
+                            .map((category) => (
+                              <div key={category.id}>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  {category.name}
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {category.images.map((img) => (
+                                    <button
+                                      key={img.id}
+                                      onClick={() => toggleTargetTrait(img.id)}
+                                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-all ${
+                                        newRuleTargets.includes(img.id)
+                                          ? "border-primary bg-primary/10 text-primary"
+                                          : "border-border hover:border-primary/50"
+                                      }`}
+                                    >
+                                      <img
+                                        src={img.dataUrl}
+                                        alt={img.name}
+                                        className="w-6 h-6 rounded object-cover"
+                                      />
+                                      {img.name}
+                                      {newRuleTargets.includes(img.id) && (
+                                        <Check className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  )}
+
+                  <Button
+                    onClick={addRule}
+                    disabled={
+                      newRuleType !== "appears_at_least" &&
+                      newRuleTargets.length === 0
+                    }
+                    className="w-full gap-2"
+                  >
+                    <Check className="w-4 h-4" />
+                    Add Rule
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setRuleDialogOpen(false)}>
               Done
