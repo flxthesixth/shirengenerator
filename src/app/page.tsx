@@ -78,7 +78,8 @@ interface TraitImage {
   id: string;
   name: string;
   dataUrl: string;
-  rarity: number;
+  rarity: number; // percentage mode
+  rarityCount?: number; // count mode
   rules: TraitRule[];
 }
 
@@ -118,6 +119,7 @@ function NFTGeneratorContent() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [categories, setCategories] = useState<TraitCategory[]>([]);
+  const [rarityMode, setRarityMode] = useState<'percentage' | 'count'>('count');
   const [generatedNFTs, setGeneratedNFTs] = useState<GeneratedNFT[]>([]);
   const [collectionSize, setCollectionSize] = useState(10);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -251,6 +253,7 @@ function NFTGeneratorContent() {
             name: file.name.replace(/\.[^/.]+$/, ""),
             dataUrl,
             rarity: 100,
+            rarityCount: 50,
             rules: [],
           };
 
@@ -281,7 +284,7 @@ function NFTGeneratorContent() {
   const updateImageRarity = (
     categoryId: string,
     imageId: string,
-    rarity: number
+    value: number
   ) => {
     setCategories(
       categories.map((c) =>
@@ -289,7 +292,11 @@ function NFTGeneratorContent() {
           ? {
               ...c,
               images: c.images.map((img) =>
-                img.id === imageId ? { ...img, rarity } : img
+                img.id === imageId
+                  ? rarityMode === 'percentage'
+                    ? { ...img, rarity: value }
+                    : { ...img, rarityCount: value }
+                  : img
               ),
             }
           : c
@@ -408,15 +415,36 @@ function NFTGeneratorContent() {
 
     if (validImages.length === 0) return null;
 
-    const totalRarity = validImages.reduce((sum, img) => sum + img.rarity, 0);
-    let random = Math.random() * totalRarity;
-
-    for (const img of validImages) {
-      random -= img.rarity;
-      if (random <= 0) return img;
+    if (rarityMode === 'percentage') {
+      const totalRarity = validImages.reduce((sum, img) => sum + img.rarity, 0);
+      let random = Math.random() * totalRarity;
+      for (const img of validImages) {
+        random -= img.rarity;
+        if (random <= 0) return img;
+      }
+      return validImages[validImages.length - 1];
+    } else {
+      // count mode: pilih trait yang masih di bawah rarityCount
+      const traitCounts = new Map<string, number>();
+      validImages.forEach((img) => {
+        traitCounts.set(img.id, 0);
+      });
+      // hitung kemunculan trait di generatedNFTs
+      generatedNFTs.forEach((nft) => {
+        nft.traits.forEach((t) => {
+          if (traitCounts.has(t.traitId)) {
+            traitCounts.set(t.traitId, (traitCounts.get(t.traitId) || 0) + 1);
+          }
+        });
+      });
+      // filter trait yang masih bisa dipilih
+      const available = validImages.filter((img) =>
+        (img.rarityCount ?? 50) > (traitCounts.get(img.id) || 0)
+      );
+      if (available.length === 0) return null;
+      // random dari available
+      return available[Math.floor(Math.random() * available.length)];
     }
-
-    return validImages[validImages.length - 1];
   };
 
   const applyAlwaysPairsRules = (
@@ -1112,23 +1140,52 @@ function NFTGeneratorContent() {
                                             <span className="text-xs text-muted-foreground">
                                               Rarity:
                                             </span>
-                                            <Slider
-                                              value={[image.rarity]}
-                                              onValueChange={([v]) =>
-                                                updateImageRarity(
-                                                  category.id,
-                                                  image.id,
-                                                  v
-                                                )
-                                              }
-                                              min={1}
-                                              max={100}
-                                              step={1}
-                                              className="flex-1"
-                                            />
-                                            <span className="text-xs font-mono w-8 text-right">
-                                              {image.rarity}%
-                                            </span>
+                                            <select
+                                              className="border rounded px-1 py-0.5 text-xs mr-2"
+                                              value={rarityMode}
+                                              onChange={e => setRarityMode(e.target.value as 'percentage' | 'count')}
+                                            >
+                                              <option value="percentage">%</option>
+                                              <option value="count">Count</option>
+                                            </select>
+                                            {rarityMode === 'percentage' ? (
+                                              <>
+                                                <Slider
+                                                  value={[image.rarity]}
+                                                  onValueChange={([v]) =>
+                                                    updateImageRarity(
+                                                      category.id,
+                                                      image.id,
+                                                      v
+                                                    )
+                                                  }
+                                                  min={1}
+                                                  max={100}
+                                                  step={1}
+                                                  className="flex-1"
+                                                />
+                                                <span className="text-xs font-mono w-8 text-right">
+                                                  {image.rarity}%
+                                                </span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <input
+                                                  type="number"
+                                                  min={1}
+                                                  value={image.rarityCount ?? 50}
+                                                  onChange={e =>
+                                                    updateImageRarity(
+                                                      category.id,
+                                                      image.id,
+                                                      parseInt(e.target.value) || 1
+                                                    )
+                                                  }
+                                                  className="w-16 border rounded px-1 py-0.5 text-xs text-right"
+                                                />
+                                                <span className="text-xs ml-1">x</span>
+                                              </>
+                                            )}
                                           </div>
                                         </div>
                                       </div>
