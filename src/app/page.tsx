@@ -127,6 +127,7 @@ function NFTGeneratorContent() {
   const [collectionName, setCollectionName] = useState("SHIREN Collection");
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [savedCollections, setSavedCollections] = useState<{ id: string; name: string; createdAt: string }[]>([]);
   const [loadingCollections, setLoadingCollections] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -702,6 +703,11 @@ function NFTGeneratorContent() {
   // Save collection to database
   const saveCollection = async () => {
     if (!user || generatedNFTs.length === 0) return;
+    const normalizedName = collectionName.trim();
+    if (!normalizedName) {
+      alert("Nama koleksi wajib diisi.");
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -709,11 +715,12 @@ function NFTGeneratorContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: collectionName,
+          name: normalizedName,
           canvasWidth: canvasSize.width,
           canvasHeight: canvasSize.height,
           categories,
           generatedNFTs,
+          isDraft: false,
         }),
       });
 
@@ -728,6 +735,50 @@ function NFTGeneratorContent() {
       alert("Failed to save collection");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Save draft (traits/images/rules) without generated NFTs
+  const saveDraft = async () => {
+    if (!user) return;
+
+    const hasAnyTrait = categories.some((c) => c.images.length > 0);
+    if (!hasAnyTrait) {
+      alert("Upload trait dulu sebelum save draft.");
+      return;
+    }
+
+    if (!collectionName.trim()) {
+      alert("Nama koleksi wajib diisi.");
+      return;
+    }
+
+    setIsSavingDraft(true);
+    try {
+      const response = await fetch("/api/collections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: collectionName.trim(),
+          canvasWidth: canvasSize.width,
+          canvasHeight: canvasSize.height,
+          categories,
+          generatedNFTs: [],
+          isDraft: true,
+        }),
+      });
+
+      if (response.ok) {
+        alert("Draft saved successfully!");
+        fetchCollections();
+      } else {
+        alert("Failed to save draft");
+      }
+    } catch (error) {
+      console.error("Error saving draft:", error);
+      alert("Failed to save draft");
+    } finally {
+      setIsSavingDraft(false);
     }
   };
 
@@ -862,39 +913,117 @@ function NFTGeneratorContent() {
                   </p>
                 </div>
               </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 bg-secondary/50 rounded-lg px-4 py-2">
+                  <Settings className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Canvas:</span>
+                  <Select
+                    value={`${canvasSize.width}x${canvasSize.height}`}
+                    onValueChange={(value) => {
+                      const [width, height] = value.split("x").map(Number);
+                      setCanvasSize({ width, height });
+                    }}
+                  >
+                    <SelectTrigger className="w-[180px] h-8 bg-transparent border-border/50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="512x512">512 × 512 (SD)</SelectItem>
+                      <SelectItem value="1024x1024">1024 × 1024 (HD)</SelectItem>
+                      <SelectItem value="1280x720">1280 × 720 (HD 16:9)</SelectItem>
+                      <SelectItem value="1920x1080">1920 × 1080 (Full HD)</SelectItem>
+                      <SelectItem value="2048x2048">2048 × 2048 (2K)</SelectItem>
+                      <SelectItem value="3840x2160">3840 × 2160 (4K)</SelectItem>
+                      <SelectItem value="500x500">500 × 500 (OpenSea)</SelectItem>
+                      <SelectItem value="350x350">350 × 350 (Twitter PFP)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {isSessionLoading ? (
+                  <div className="w-10 h-10 rounded-full bg-secondary/50 animate-pulse" />
+                ) : user ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="gap-2 px-2">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage
+                            src={user.user_metadata?.avatar_url || ""}
+                            alt={user.user_metadata?.full_name || ""}
+                          />
+                          <AvatarFallback>
+                            <User className="w-4 h-4" />
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm hidden sm:inline">
+                          {user.user_metadata?.full_name || user.email}
+                        </span>
+                        <ChevronDown className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <div className="px-2 py-1.5">
+                        <p className="text-sm font-medium">
+                          {user.user_metadata?.full_name || "User"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{user.email}</p>
+                      </div>
+                      <DropdownMenuSeparator />
+                      <NextLink href="/collections">
+                        <DropdownMenuItem>
+                          <FolderOpen className="w-4 h-4 mr-2" />
+                          My Collections
+                          {savedCollections.length > 0 && (
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              {savedCollections.length}
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                      </NextLink>
+                      <DropdownMenuItem onClick={toggleTheme}>
+                        {mounted && theme === "dark" ? (
+                          <>
+                            <Sun className="w-4 h-4 mr-2" />
+                            Light Mode
+                          </>
+                        ) : (
+                          <>
+                            <Moon className="w-4 h-4 mr-2" />
+                            Dark Mode
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                      {savedCollections.length > 0 && (
+                        <>
+                          <DropdownMenuSeparator />
+                          {savedCollections.slice(0, 5).map((col) => (
+                            <DropdownMenuItem key={col.id} onClick={() => loadCollection(col.id)}>
+                              <Cloud className="w-4 h-4 mr-2" />
+                              <span className="truncate">{col.name}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </>
+                      )}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleLogout} className="text-destructive">
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Logout
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <Button onClick={handleGoogleLogin} variant="outline" className="gap-2">
+                    <LogIn className="w-4 h-4" />
+                    <span className="hidden sm:inline">Login with Google</span>
+                    <span className="sm:hidden">Login</span>
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </header>
-        {/* ...rest of the content... */}
-      </div> {/* Close .relative.z-10 */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 bg-secondary/50 rounded-lg px-4 py-2">
-          <Settings className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Canvas:</span>
-          <Select
-            value={`${canvasSize.width}x${canvasSize.height}`}
-            onValueChange={(value) => {
-              const [width, height] = value.split("x").map(Number);
-              setCanvasSize({ width, height });
-            }}
-          >
-            <SelectTrigger className="w-[180px] h-8 bg-transparent border-border/50">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="512x512">512 × 512 (SD)</SelectItem>
-              <SelectItem value="1024x1024">1024 × 1024 (HD)</SelectItem>
-              <SelectItem value="1280x720">1280 × 720 (HD 16:9)</SelectItem>
-              <SelectItem value="1920x1080">1920 × 1080 (Full HD)</SelectItem>
-              <SelectItem value="2048x2048">2048 × 2048 (2K)</SelectItem>
-              <SelectItem value="3840x2160">3840 × 2160 (4K)</SelectItem>
-              <SelectItem value="500x500">500 × 500 (OpenSea)</SelectItem>
-              <SelectItem value="350x350">350 × 350 (Twitter PFP)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {/* Auth Section ... unchanged ... */}
       </div>
+
     {/* Main Content Start */}
     <main className="container mx-auto px-2 py-8 max-w-4xl flex flex-col gap-8">
       {/* Trait Layers Card */}
@@ -1237,6 +1366,25 @@ function NFTGeneratorContent() {
                           </>
                         )}
                       </Button>
+                      {user && (
+                        <Button
+                          variant="outline"
+                          onClick={saveDraft}
+                          disabled={
+                            isSavingDraft ||
+                            categories.length === 0 ||
+                            categories.every((c) => c.images.length === 0)
+                          }
+                          className="gap-2 px-6"
+                        >
+                          {isSavingDraft ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Save className="w-4 h-4" />
+                          )}
+                          Save Draft
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
