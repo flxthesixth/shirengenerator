@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ import {
   ExternalLink,
   Sun,
   Moon,
+  FileEdit,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
@@ -49,6 +51,13 @@ interface SavedCollection {
   nftsCount: number;
 }
 
+interface LocalDraft {
+  name: string;
+  canvasSize: { width: number; height: number };
+  categories: { id: string; name: string; images: unknown[] }[];
+  savedAt: string;
+}
+
 export default function CollectionsPage() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
@@ -58,15 +67,30 @@ export default function CollectionsPage() {
   const [collectionToDelete, setCollectionToDelete] = useState<SavedCollection | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [localDraft, setLocalDraft] = useState<LocalDraft | null>(null);
   const supabase = createClient();
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     setMounted(true);
+    // Read localStorage draft
+    try {
+      const raw = localStorage.getItem("shiren_draft");
+      if (raw) {
+        setLocalDraft(JSON.parse(raw));
+      }
+    } catch {
+      // ignore
+    }
   }, []);
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark");
+  };
+
+  const deleteDraft = () => {
+    localStorage.removeItem("shiren_draft");
+    setLocalDraft(null);
   };
 
   useEffect(() => {
@@ -90,7 +114,7 @@ export default function CollectionsPage() {
     if (user) {
       fetchCollections();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const fetchCollections = async () => {
@@ -255,73 +279,130 @@ export default function CollectionsPage() {
       </header>
 
       {/* Content */}
-      <main className="container mx-auto px-4 py-8">
-        {loadingCollections ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          </div>
-        ) : collections.length === 0 ? (
-          <Card className="max-w-md mx-auto">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <FolderOpen className="w-16 h-16 text-muted-foreground mb-4" />
-              <h2 className="text-xl font-semibold mb-2">No Collections Yet</h2>
-              <p className="text-muted-foreground mb-6">
-                Generate and save your first NFT collection to see it here.
-              </p>
-              <Link href="/">
-                <Button>
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Go to Generator
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {collections.map((collection) => (
-              <Card key={collection.id} className="group hover:shadow-lg transition-shadow">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <CardTitle className="text-lg truncate pr-2">{collection.name}</CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
-                      onClick={() => handleDeleteClick(collection)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+      <main className="container mx-auto px-4 py-8 space-y-6">
+        {/* Local Draft Section */}
+        {localDraft && (
+          <div>
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Draft Tersimpan</h2>
+            <Card className="border-primary/40 bg-primary/5">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileEdit className="w-4 h-4 text-primary" />
+                    <CardTitle className="text-lg truncate pr-2">{localDraft.name}</CardTitle>
+                    <Badge variant="secondary" className="text-xs">Draft</Badge>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Layers className="w-4 h-4" />
-                      <span>{collection.categoriesCount} layers</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <ImageIcon className="w-4 h-4" />
-                      <span>{collection.nftsCount} NFTs</span>
-                    </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                    onClick={deleteDraft}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <Layers className="w-4 h-4" />
+                    <span>{localDraft.categories?.length ?? 0} layers</span>
                   </div>
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Calendar className="w-3 h-3" />
-                    <span>{formatDate(collection.createdAt)}</span>
+                  <div className="flex items-center gap-1">
+                    <ImageIcon className="w-4 h-4" />
+                    <span>{localDraft.categories?.reduce((acc, c) => acc + (c.images?.length ?? 0), 0) ?? 0} traits</span>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    Canvas: {collection.canvasWidth} × {collection.canvasHeight}
-                  </div>
-                  <Link href={`/?load=${collection.id}`}>
-                    <Button variant="outline" className="w-full mt-2">
-                      <ExternalLink className="w-4 h-4 mr-2" />
-                      Load Collection
-                    </Button>
-                  </Link>
-                </CardContent>
-              </Card>
-            ))}
+                </div>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Calendar className="w-3 h-3" />
+                  <span>Disimpan: {formatDate(localDraft.savedAt)}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Canvas: {localDraft.canvasSize?.width} × {localDraft.canvasSize?.height}
+                </div>
+                <Link href="/?loadDraft=1">
+                  <Button className="w-full mt-2 gap-2">
+                    <ExternalLink className="w-4 h-4" />
+                    Lanjutkan Draft
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
           </div>
         )}
+
+        {/* Cloud Collections Section */}
+        <div>
+          {(localDraft || collections.length > 0) && (
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Koleksi</h2>
+          )}
+          {loadingCollections ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : collections.length === 0 && !localDraft ? (
+            <Card className="max-w-md mx-auto">
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <FolderOpen className="w-16 h-16 text-muted-foreground mb-4" />
+                <h2 className="text-xl font-semibold mb-2">No Collections Yet</h2>
+                <p className="text-muted-foreground mb-6">
+                  Klik &quot;Save Draft&quot; di generator untuk menyimpan trait kamu.
+                </p>
+                <Link href="/">
+                  <Button>
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Go to Generator
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ) : collections.length === 0 ? null : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {collections.map((collection) => (
+                <Card key={collection.id} className="group hover:shadow-lg transition-shadow">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <CardTitle className="text-lg truncate pr-2">{collection.name}</CardTitle>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteClick(collection)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Layers className="w-4 h-4" />
+                        <span>{collection.categoriesCount} layers</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <ImageIcon className="w-4 h-4" />
+                        <span>{collection.nftsCount} NFTs</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Calendar className="w-3 h-3" />
+                      <span>{formatDate(collection.createdAt)}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Canvas: {collection.canvasWidth} × {collection.canvasHeight}
+                    </div>
+                    <Link href={`/?load=${collection.id}`}>
+                      <Button variant="outline" className="w-full mt-2">
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        Load Collection
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       </main>
 
       {/* Delete Confirmation Dialog */}

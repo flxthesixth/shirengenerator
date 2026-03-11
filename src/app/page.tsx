@@ -240,35 +240,70 @@ function NFTGeneratorContent() {
   };
 
   const handleFileDrop = useCallback(
-    (categoryId: string, files: FileList | null) => {
+    async (categoryId: string, files: FileList | null) => {
       if (!files) return;
 
-      Array.from(files).forEach((file) => {
-        if (!file.type.startsWith("image/")) return;
+      const MAX_FILE_SIZE_MB = 10;
+      const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
+      const MAX_FILES_PER_UPLOAD = 100;
+      const BATCH_SIZE = 5;
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const dataUrl = e.target?.result as string;
-          const newImage: TraitImage = {
-            id: `img-${Date.now()}-${Math.random()}`,
-            name: file.name.replace(/\.[^/.]+$/, ""),
-            dataUrl,
-            rarity: 100,
-            rarityCount: 50,
-            rarityMode: "count",
-            rules: [],
+      const validFiles = Array.from(files).filter((file) => {
+        if (!file.type.startsWith("image/")) return false;
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`File "${file.name}" terlalu besar (maks ${MAX_FILE_SIZE_MB}MB), dilewati.`);
+          return false;
+        }
+        return true;
+      });
+
+      if (validFiles.length === 0) return;
+
+      if (validFiles.length > MAX_FILES_PER_UPLOAD) {
+        alert(
+          `Terlalu banyak file sekaligus (${validFiles.length}). Upload maksimal ${MAX_FILES_PER_UPLOAD} file per batch.`
+        );
+        return;
+      }
+
+      const readFileAsDataUrl = (file: File): Promise<TraitImage | null> =>
+        new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const dataUrl = e.target?.result as string;
+            resolve({
+              id: `img-${Date.now()}-${Math.random()}`,
+              name: file.name.replace(/\.[^/.]+$/, ""),
+              dataUrl,
+              rarity: 100,
+              rarityCount: 50,
+              rarityMode: "count",
+              rules: [],
+            });
           };
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(file);
+        });
 
+      // Process in batches to avoid spawning hundreds of FileReaders at once
+      for (let i = 0; i < validFiles.length; i += BATCH_SIZE) {
+        const batch = validFiles.slice(i, i + BATCH_SIZE);
+        const results = await Promise.all(batch.map(readFileAsDataUrl));
+        const newImages = results.filter((img): img is TraitImage => img !== null);
+
+        if (newImages.length > 0) {
           setCategories((prev) =>
             prev.map((c) =>
               c.id === categoryId
-                ? { ...c, images: [...c.images, newImage] }
+                ? { ...c, images: [...c.images, ...newImages] }
                 : c
             )
           );
-        };
-        reader.readAsDataURL(file);
-      });
+        }
+
+        // Yield to the browser between batches to keep UI responsive
+        await new Promise((r) => setTimeout(r, 0));
+      }
     },
     []
   );
@@ -595,6 +630,7 @@ function NFTGeneratorContent() {
     const nfts: GeneratedNFT[] = [];
     const traitCounts = new Map<string, number>();
 
+    const PREVIEW_BATCH = 5; // update UI every N NFTs to reduce re-renders
     for (let i = 0; i < collectionSize; i++) {
       const nft = await generateSingleNFT(traitCounts);
       if (nft) {
@@ -602,9 +638,13 @@ function NFTGeneratorContent() {
           traitCounts.set(t.traitId, (traitCounts.get(t.traitId) || 0) + 1);
         });
         nfts.push(nft);
-        setGeneratedNFTs([...nfts]);
+        // Batch UI updates to avoid a re-render on every single NFT
+        if (i % PREVIEW_BATCH === PREVIEW_BATCH - 1 || i === collectionSize - 1) {
+          setGeneratedNFTs([...nfts]);
+          await new Promise((r) => setTimeout(r, 0)); // yield to browser
+        }
       }
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 10));
     }
 
     setIsGenerating(false);
@@ -738,10 +778,8 @@ function NFTGeneratorContent() {
     }
   };
 
-  // Save draft (traits/images/rules) without generated NFTs
-  const saveDraft = async () => {
-    if (!user) return;
-
+  // Save draft to localStorage (works without login)
+  const saveDraft = () => {
     const hasAnyTrait = categories.some((c) => c.images.length > 0);
     if (!hasAnyTrait) {
       alert("Upload trait dulu sebelum save draft.");
@@ -755,28 +793,23 @@ function NFTGeneratorContent() {
 
     setIsSavingDraft(true);
     try {
-      const response = await fetch("/api/collections", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: collectionName.trim(),
-          canvasWidth: canvasSize.width,
-          canvasHeight: canvasSize.height,
-          categories,
-          generatedNFTs: [],
-          isDraft: true,
-        }),
+      const payload = JSON.stringify({
+        name: collectionName.trim(),
+        canvasSize,
+        categories,
+        savedAt: new Date().toISOString(),
       });
-
-      if (response.ok) {
-        alert("Draft saved successfully!");
-        fetchCollections();
-      } else {
-        alert("Failed to save draft");
-      }
+      localStorage.setItem("shiren_draft", payload);
+      alert("Draft berhasil disimpan!");
     } catch (error) {
       console.error("Error saving draft:", error);
-      alert("Failed to save draft");
+      if ((error as DOMException)?.name === "QuotaExceededError") {
+        alert(
+          "Penyimpanan lokal penuh. Coba kurangi jumlah trait atau ukuran gambar."
+        );
+      } else {
+        alert("Gagal menyimpan draft.");
+      }
     } finally {
       setIsSavingDraft(false);
     }
@@ -827,9 +860,42 @@ function NFTGeneratorContent() {
     }
   };
 
+  // Handle ?loadDraft=1 — restore from localStorage (works without login)
+  useEffect(() => {
+    const isDraftLoad = searchParams.get("loadDraft") === "1";
+    if (!isDraftLoad) return;
+    try {
+      const raw = localStorage.getItem("shiren_draft");
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft.name) setCollectionName(draft.name);
+      if (draft.canvasSize) setCanvasSize(draft.canvasSize);
+      if (Array.isArray(draft.categories)) {
+        const normalized: TraitCategory[] = draft.categories.map(
+          (category: TraitCategory) => ({
+            ...category,
+            images: (category.images || []).map((img) => ({
+              ...img,
+              rarityMode: img.rarityMode ?? "count",
+              rarityCount: img.rarityCount ?? 50,
+            })),
+          })
+        );
+        setCategories(normalized);
+      }
+    } catch (error) {
+      console.error("Error loading draft from localStorage:", error);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-load last collection when user logs in
   const loadLastCollection = async () => {
     if (!user) return;
+
+    // If we're loading a draft from URL, skip cloud auto-load
+    const isDraftLoad = searchParams.get("loadDraft") === "1";
+    if (isDraftLoad) return;
 
     // Check if there's a specific collection to load from URL
     const loadId = searchParams.get("load");
@@ -1178,6 +1244,8 @@ function NFTGeneratorContent() {
                                           <img
                                             src={image.dataUrl}
                                             alt={image.name}
+                                            loading="lazy"
+                                            decoding="async"
                                             className="w-full h-full object-contain p-2"
                                           />
                                           <button
@@ -1366,25 +1434,23 @@ function NFTGeneratorContent() {
                           </>
                         )}
                       </Button>
-                      {user && (
-                        <Button
-                          variant="outline"
-                          onClick={saveDraft}
-                          disabled={
-                            isSavingDraft ||
-                            categories.length === 0 ||
-                            categories.every((c) => c.images.length === 0)
-                          }
-                          className="gap-2 px-6"
-                        >
-                          {isSavingDraft ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Save className="w-4 h-4" />
-                          )}
-                          Save Draft
-                        </Button>
-                      )}
+                      <Button
+                        variant="outline"
+                        onClick={saveDraft}
+                        disabled={
+                          isSavingDraft ||
+                          categories.length === 0 ||
+                          categories.every((c) => c.images.length === 0)
+                        }
+                        className="gap-2 px-6"
+                      >
+                        {isSavingDraft ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4" />
+                        )}
+                        Save Draft
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -1473,6 +1539,8 @@ function NFTGeneratorContent() {
                                 <img
                                   src={nft.dataUrl}
                                   alt={`NFT #${index + 1}`}
+                                  loading="lazy"
+                                  decoding="async"
                                   className="w-full h-full object-cover"
                                 />
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
