@@ -428,7 +428,9 @@ function NFTGeneratorContent() {
 
   const selectTraitByRarity = (
     images: TraitImage[],
-    selectedTraits: Map<string, string>
+    selectedTraits: Map<string, string>,
+    // Live counts from the current generation loop — avoids reading stale React state.
+    liveCounts: Map<string, number>
   ): TraitImage | null => {
     if (images.length === 0) return null;
 
@@ -471,27 +473,18 @@ function NFTGeneratorContent() {
 
     if (validImages.length === 0) return null;
 
-    const traitCounts = new Map<string, number>();
-    validImages.forEach((img) => {
-      traitCounts.set(img.id, 0);
-    });
-    generatedNFTs.forEach((nft) => {
-      nft.traits.forEach((t) => {
-        if (traitCounts.has(t.traitId)) {
-          traitCounts.set(t.traitId, (traitCounts.get(t.traitId) || 0) + 1);
-        }
-      });
-    });
-
+    // Use the live generation counts (not stale React state) so count limits
+    // are enforced correctly within the current generation run.
     const candidates = validImages
       .map((img) => {
         const mode = img.rarityMode ?? "count";
         if (mode === "count") {
-          const currentCount = traitCounts.get(img.id) || 0;
+          const currentCount = liveCounts.get(img.id) || 0;
           const limit = img.rarityCount ?? 50;
           if (currentCount >= limit) return null;
           return { img, weight: 1 };
         }
+        // percentage mode: use rarity value as relative weight
         return { img, weight: Math.max(1, img.rarity) };
       })
       .filter((item): item is { img: TraitImage; weight: number } => !!item);
@@ -571,11 +564,11 @@ function NFTGeneratorContent() {
       let selectedTrait: TraitImage | null = null;
 
       if (appearsAtLeastTraits.length > 0) {
-        selectedTrait = selectTraitByRarity(appearsAtLeastTraits, selectedTraits);
+        selectedTrait = selectTraitByRarity(appearsAtLeastTraits, selectedTraits, traitCounts);
       }
 
       if (!selectedTrait) {
-        selectedTrait = selectTraitByRarity(category.images, selectedTraits);
+        selectedTrait = selectTraitByRarity(category.images, selectedTraits, traitCounts);
       }
 
       if (!selectedTrait) continue;
