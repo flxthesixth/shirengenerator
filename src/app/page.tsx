@@ -132,6 +132,10 @@ function NFTGeneratorContent() {
   const [loadingCollections, setLoadingCollections] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  // Always-up-to-date reference to categories for use in async generation loops
+  // (React state may be stale inside closures)
+  const categoriesRef = useRef<TraitCategory[]>([]);
+  categoriesRef.current = categories;
 
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
   const [selectedTrait, setSelectedTrait] = useState<{
@@ -198,22 +202,22 @@ function NFTGeneratorContent() {
       expanded: true,
       order: categories.length,
     };
-    setCategories([...categories, newCategory]);
+    setCategories((prev) => [...prev, newCategory]);
   };
 
   const removeCategory = (categoryId: string) => {
-    setCategories(categories.filter((c) => c.id !== categoryId));
+    setCategories((prev) => prev.filter((c) => c.id !== categoryId));
   };
 
   const updateCategoryName = (categoryId: string, name: string) => {
-    setCategories(
-      categories.map((c) => (c.id === categoryId ? { ...c, name } : c))
+    setCategories((prev) =>
+      prev.map((c) => (c.id === categoryId ? { ...c, name } : c))
     );
   };
 
   const toggleCategoryExpand = (categoryId: string) => {
-    setCategories(
-      categories.map((c) =>
+    setCategories((prev) =>
+      prev.map((c) =>
         c.id === categoryId ? { ...c, expanded: !c.expanded } : c
       )
     );
@@ -221,22 +225,26 @@ function NFTGeneratorContent() {
 
   const moveCategoryUp = (index: number) => {
     if (index === 0) return;
-    const newCategories = [...categories];
-    [newCategories[index - 1], newCategories[index]] = [
-      newCategories[index],
-      newCategories[index - 1],
-    ];
-    setCategories(newCategories.map((c, i) => ({ ...c, order: i })));
+    setCategories((prev) => {
+      const newCategories = [...prev];
+      [newCategories[index - 1], newCategories[index]] = [
+        newCategories[index],
+        newCategories[index - 1],
+      ];
+      return newCategories.map((c, i) => ({ ...c, order: i }));
+    });
   };
 
   const moveCategoryDown = (index: number) => {
-    if (index === categories.length - 1) return;
-    const newCategories = [...categories];
-    [newCategories[index], newCategories[index + 1]] = [
-      newCategories[index + 1],
-      newCategories[index],
-    ];
-    setCategories(newCategories.map((c, i) => ({ ...c, order: i })));
+    setCategories((prev) => {
+      if (index === prev.length - 1) return prev;
+      const newCategories = [...prev];
+      [newCategories[index], newCategories[index + 1]] = [
+        newCategories[index + 1],
+        newCategories[index],
+      ];
+      return newCategories.map((c, i) => ({ ...c, order: i }));
+    });
   };
 
   const handleFileDrop = useCallback(
@@ -323,8 +331,8 @@ function NFTGeneratorContent() {
     imageId: string,
     value: number
   ) => {
-    setCategories(
-      categories.map((c) =>
+    setCategories((prev) =>
+      prev.map((c) =>
         c.id === categoryId
           ? {
               ...c,
@@ -346,8 +354,8 @@ function NFTGeneratorContent() {
     imageId: string,
     mode: "percentage" | "count"
   ) => {
-    setCategories(
-      categories.map((c) =>
+    setCategories((prev) =>
+      prev.map((c) =>
         c.id === categoryId
           ? {
               ...c,
@@ -426,11 +434,13 @@ function NFTGeneratorContent() {
     );
   };
 
-  const selectTraitByRarity = (
+  // Local version of selectTraitByRarity that accepts a getTraitById function
+  // to avoid stale closure issues during async generation
+  const selectTraitByRarityLocal = (
     images: TraitImage[],
     selectedTraits: Map<string, string>,
-    // Live counts from the current generation loop — avoids reading stale React state.
-    liveCounts: Map<string, number>
+    liveCounts: Map<string, number>,
+    getTraitByIdFn: (id: string) => (TraitImage & { categoryId: string; categoryName: string }) | null
   ): TraitImage | null => {
     if (images.length === 0) return null;
 
@@ -455,7 +465,7 @@ function NFTGeneratorContent() {
           ) {
             const targetCategories = new Set(
               rule.targetTraitIds.map((id) => {
-                const trait = getTraitById(id);
+                const trait = getTraitByIdFn(id);
                 return trait?.categoryId;
               })
             );
@@ -473,8 +483,6 @@ function NFTGeneratorContent() {
 
     if (validImages.length === 0) return null;
 
-    // Use the live generation counts (not stale React state) so count limits
-    // are enforced correctly within the current generation run.
     const candidates = validImages
       .map((img) => {
         const mode = img.rarityMode ?? "count";
@@ -484,7 +492,6 @@ function NFTGeneratorContent() {
           if (currentCount >= limit) return null;
           return { img, weight: 1 };
         }
-        // percentage mode: use rarity value as relative weight
         return { img, weight: Math.max(1, img.rarity) };
       })
       .filter((item): item is { img: TraitImage; weight: number } => !!item);
@@ -501,10 +508,12 @@ function NFTGeneratorContent() {
     return candidates[candidates.length - 1].img;
   };
 
-  const applyAlwaysPairsRules = (
+  // Local version of applyAlwaysPairsRules that accepts a getTraitById function
+  const applyAlwaysPairsRulesLocal = (
     selectedTraits: Map<string, string>,
     allCategories: TraitCategory[],
-    liveCounts: Map<string, number>
+    liveCounts: Map<string, number>,
+    getTraitByIdFn: (id: string) => (TraitImage & { categoryId: string; categoryName: string }) | null
   ): Map<string, string> => {
     const result = new Map(selectedTraits);
     let changed = true;
@@ -521,10 +530,8 @@ function NFTGeneratorContent() {
         for (const rule of trait.rules) {
           if (rule.type === "always_pairs") {
             for (const targetId of rule.targetTraitIds) {
-              const targetTrait = getTraitById(targetId);
+              const targetTrait = getTraitByIdFn(targetId);
               if (targetTrait && !result.has(targetTrait.categoryId)) {
-                // Respect rarityCount limit — don't force in a trait that has
-                // already reached its count cap.
                 if ((targetTrait.rarityMode ?? "count") === "count") {
                   const currentCount = liveCounts.get(targetId) ?? 0;
                   const limit = targetTrait.rarityCount ?? 50;
@@ -543,7 +550,9 @@ function NFTGeneratorContent() {
   };
 
   const generateSingleNFT = async (
-    traitCounts: Map<string, number>
+    traitCounts: Map<string, number>,
+    // Pass in the latest categories snapshot to avoid stale closure
+    currentCategories: TraitCategory[]
   ): Promise<GeneratedNFT | null> => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -553,10 +562,19 @@ function NFTGeneratorContent() {
 
     ctx.clearRect(0, 0, canvasSize.width, canvasSize.height);
 
+    // Helper to lookup trait by ID from the provided snapshot
+    const getTraitByIdLocal = (traitId: string) => {
+      for (const cat of currentCategories) {
+        const img = cat.images.find((i) => i.id === traitId);
+        if (img) return { ...img, categoryId: cat.id, categoryName: cat.name };
+      }
+      return null;
+    };
+
     const selectedTraits = new Map<string, string>();
     const traits: { category: string; trait: string; traitId: string }[] = [];
 
-    for (const category of categories) {
+    for (const category of currentCategories) {
       if (selectedTraits.has(category.id)) continue;
 
       const appearsAtLeastTraits = category.images.filter((img) =>
@@ -572,11 +590,11 @@ function NFTGeneratorContent() {
       let selectedTrait: TraitImage | null = null;
 
       if (appearsAtLeastTraits.length > 0) {
-        selectedTrait = selectTraitByRarity(appearsAtLeastTraits, selectedTraits, traitCounts);
+        selectedTrait = selectTraitByRarityLocal(appearsAtLeastTraits, selectedTraits, traitCounts, getTraitByIdLocal);
       }
 
       if (!selectedTrait) {
-        selectedTrait = selectTraitByRarity(category.images, selectedTraits, traitCounts);
+        selectedTrait = selectTraitByRarityLocal(category.images, selectedTraits, traitCounts, getTraitByIdLocal);
       }
 
       if (!selectedTrait) continue;
@@ -584,9 +602,9 @@ function NFTGeneratorContent() {
       selectedTraits.set(category.id, selectedTrait.id);
     }
 
-    const finalTraits = applyAlwaysPairsRules(selectedTraits, categories, traitCounts);
+    const finalTraits = applyAlwaysPairsRulesLocal(selectedTraits, currentCategories, traitCounts, getTraitByIdLocal);
 
-    for (const category of categories) {
+    for (const category of currentCategories) {
       const traitId = finalTraits.get(category.id);
       if (!traitId) continue;
 
@@ -638,9 +656,13 @@ function NFTGeneratorContent() {
     const nfts: GeneratedNFT[] = [];
     const traitCounts = new Map<string, number>();
 
+    // Capture the current state of categories at the start of generation
+    // to avoid stale closure issues during async operations
+    const currentCategories = categoriesRef.current;
+
     const PREVIEW_BATCH = 5; // update UI every N NFTs to reduce re-renders
     for (let i = 0; i < collectionSize; i++) {
-      const nft = await generateSingleNFT(traitCounts);
+      const nft = await generateSingleNFT(traitCounts, currentCategories);
       if (nft) {
         nft.traits.forEach((t) => {
           traitCounts.set(t.traitId, (traitCounts.get(t.traitId) || 0) + 1);
