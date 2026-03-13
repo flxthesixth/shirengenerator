@@ -66,12 +66,19 @@ import { useTheme } from "next-themes";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 type RuleType = "doesnt_mix" | "only_mix" | "always_pairs" | "appears_at_least";
+type LayerRuleType = "layer_doesnt_mix" | "layer_requires";
 
 interface TraitRule {
   id: string;
   type: RuleType;
   targetTraitIds: string[];
   value?: number;
+}
+
+interface LayerRule {
+  id: string;
+  type: LayerRuleType;
+  targetLayerId: string;
 }
 
 interface TraitImage {
@@ -90,6 +97,8 @@ interface TraitCategory {
   images: TraitImage[];
   expanded: boolean;
   order: number;
+  layerRules?: LayerRule[];
+  isOptional?: boolean; // Layer can be skipped (no trait selected)
 }
 
 interface GeneratedNFT {
@@ -105,11 +114,21 @@ const RULE_LABELS: Record<RuleType, string> = {
   appears_at_least: "Appears At Least",
 };
 
+const LAYER_RULE_LABELS: Record<LayerRuleType, string> = {
+  layer_doesnt_mix: "Tidak Muncul Bersamaan Dengan",
+  layer_requires: "Membutuhkan Layer",
+};
+
 const RULE_COLORS: Record<RuleType, "default" | "secondary" | "destructive" | "outline"> = {
   doesnt_mix: "destructive",
   only_mix: "secondary",
   always_pairs: "default",
   appears_at_least: "outline",
+};
+
+const LAYER_RULE_COLORS: Record<LayerRuleType, "default" | "secondary" | "destructive" | "outline"> = {
+  layer_doesnt_mix: "destructive",
+  layer_requires: "default",
 };
 
 function NFTGeneratorContent() {
@@ -145,6 +164,12 @@ function NFTGeneratorContent() {
   const [newRuleType, setNewRuleType] = useState<RuleType>("doesnt_mix");
   const [newRuleTargets, setNewRuleTargets] = useState<string[]>([]);
   const [newRuleValue, setNewRuleValue] = useState(1);
+
+  // Layer rule dialog state
+  const [layerRuleDialogOpen, setLayerRuleDialogOpen] = useState(false);
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [newLayerRuleType, setNewLayerRuleType] = useState<LayerRuleType>("layer_doesnt_mix");
+  const [newLayerRuleTarget, setNewLayerRuleTarget] = useState<string>("");
 
   // Prevent hydration mismatch for theme
   useEffect(() => {
@@ -434,6 +459,57 @@ function NFTGeneratorContent() {
     );
   };
 
+  // Layer rule functions
+  const openLayerRuleDialog = (categoryId: string) => {
+    setSelectedLayerId(categoryId);
+    setNewLayerRuleType("layer_doesnt_mix");
+    setNewLayerRuleTarget("");
+    setLayerRuleDialogOpen(true);
+  };
+
+  const addLayerRule = () => {
+    if (!selectedLayerId || !newLayerRuleTarget) return;
+    if (selectedLayerId === newLayerRuleTarget) return; // Can't add rule to self
+
+    const newRule: LayerRule = {
+      id: `layer-rule-${Date.now()}`,
+      type: newLayerRuleType,
+      targetLayerId: newLayerRuleTarget,
+    };
+
+    setCategories((prev) =>
+      prev.map((c) =>
+        c.id === selectedLayerId
+          ? { ...c, layerRules: [...(c.layerRules || []), newRule] }
+          : c
+      )
+    );
+
+    setNewLayerRuleTarget("");
+  };
+
+  const removeLayerRule = (ruleId: string) => {
+    if (!selectedLayerId) return;
+
+    setCategories((prev) =>
+      prev.map((c) =>
+        c.id === selectedLayerId
+          ? { ...c, layerRules: (c.layerRules || []).filter((r) => r.id !== ruleId) }
+          : c
+      )
+    );
+  };
+
+  const toggleLayerOptional = (categoryId: string) => {
+    setCategories((prev) =>
+      prev.map((c) =>
+        c.id === categoryId
+          ? { ...c, isOptional: !c.isOptional }
+          : c
+      )
+    );
+  };
+
   // Local version of selectTraitByRarity that accepts a getTraitById function
   // to avoid stale closure issues during async generation.
   // BIDIRECTIONAL rules: doesnt_mix works both ways (A↔B exclusion).
@@ -633,11 +709,64 @@ function NFTGeneratorContent() {
       return null;
     };
 
+    // Build bidirectional layer_doesnt_mix exclusion map
+    const layerExclusionMap = new Map<string, Set<string>>();
+    for (const cat of currentCategories) {
+      for (const rule of cat.layerRules || []) {
+        if (rule.type === "layer_doesnt_mix") {
+          // Forward: cat → target
+          if (!layerExclusionMap.has(cat.id)) {
+            layerExclusionMap.set(cat.id, new Set());
+          }
+          layerExclusionMap.get(cat.id)!.add(rule.targetLayerId);
+          // Reverse: target → cat (bidirectional)
+          if (!layerExclusionMap.has(rule.targetLayerId)) {
+            layerExclusionMap.set(rule.targetLayerId, new Set());
+          }
+          layerExclusionMap.get(rule.targetLayerId)!.add(cat.id);
+        }
+      }
+    }
+
+    // Build layer_requires map (also bidirectional)
+    const layerRequiresMap = new Map<string, Set<string>>();
+    for (const cat of currentCategories) {
+      for (const rule of cat.layerRules || []) {
+        if (rule.type === "layer_requires") {
+          // Forward: cat requires target
+          if (!layerRequiresMap.has(cat.id)) {
+            layerRequiresMap.set(cat.id, new Set());
+          }
+          layerRequiresMap.get(cat.id)!.add(rule.targetLayerId);
+          // Reverse: target is required by cat (so if target is selected, cat should also be)
+          if (!layerRequiresMap.has(rule.targetLayerId)) {
+            layerRequiresMap.set(rule.targetLayerId, new Set());
+          }
+          layerRequiresMap.get(rule.targetLayerId)!.add(cat.id);
+        }
+      }
+    }
+
+    // Track which layers are excluded due to layer rules
+    const excludedLayers = new Set<string>();
+    // Track which layers MUST have a trait due to layer_requires
+    const requiredLayers = new Set<string>();
+
     const selectedTraits = new Map<string, string>();
     const traits: { category: string; trait: string; traitId: string }[] = [];
 
     for (const category of currentCategories) {
       if (selectedTraits.has(category.id)) continue;
+      
+      // Skip if this layer is excluded by a layer_doesnt_mix rule
+      if (excludedLayers.has(category.id)) continue;
+
+      // Check if this is an optional layer and randomly skip it
+      // (but not if it's required by another selected layer)
+      if (category.isOptional && !requiredLayers.has(category.id)) {
+        // 30% chance to skip optional layers
+        if (Math.random() < 0.3) continue;
+      }
 
       const appearsAtLeastTraits = category.images.filter((img) =>
         img.rules.some((r) => {
@@ -662,6 +791,18 @@ function NFTGeneratorContent() {
       if (!selectedTrait) continue;
 
       selectedTraits.set(category.id, selectedTrait.id);
+
+      // Mark conflicting layers as excluded (layer_doesnt_mix)
+      const conflictingLayers = layerExclusionMap.get(category.id);
+      if (conflictingLayers) {
+        conflictingLayers.forEach((layerId) => excludedLayers.add(layerId));
+      }
+
+      // Mark required layers (layer_requires)
+      const requiredByThisLayer = layerRequiresMap.get(category.id);
+      if (requiredByThisLayer) {
+        requiredByThisLayer.forEach((layerId) => requiredLayers.add(layerId));
+      }
     }
 
     const finalTraits = applyAlwaysPairsRulesLocal(selectedTraits, currentCategories, traitCounts, getTraitByIdLocal);
@@ -1273,6 +1414,17 @@ function NFTGeneratorContent() {
                                   {category.images.length} traits
                                 </span>
                                 <button
+                                  onClick={() => openLayerRuleDialog(category.id)}
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    category.layerRules && category.layerRules.length > 0
+                                      ? "bg-primary/20 text-primary hover:bg-primary/30"
+                                      : "hover:bg-secondary text-muted-foreground"
+                                  }`}
+                                  title="Layer Rules"
+                                >
+                                  <Layers className="w-4 h-4" />
+                                </button>
+                                <button
                                   onClick={() =>
                                     toggleCategoryExpand(category.id)
                                   }
@@ -1292,6 +1444,29 @@ function NFTGeneratorContent() {
                                 </button>
                               </div>
                             </div>
+
+                            {/* Layer rules indicator */}
+                            {category.layerRules && category.layerRules.length > 0 && (
+                              <div className="px-4 py-2 border-t border-border/30 bg-secondary/20">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {category.layerRules.map((rule) => {
+                                    const targetLayer = categories.find(c => c.id === rule.targetLayerId);
+                                    return (
+                                      <Badge
+                                        key={rule.id}
+                                        variant={rule.type === "layer_doesnt_mix" ? "destructive" : "default"}
+                                        className="text-xs"
+                                      >
+                                        {rule.type === "layer_doesnt_mix" ? "✗" : "→"} {targetLayer?.name || "Unknown"}
+                                      </Badge>
+                                    );
+                                  })}
+                                  {category.isOptional && (
+                                    <Badge variant="secondary" className="text-xs">Optional</Badge>
+                                  )}
+                                </div>
+                              </div>
+                            )}
 
                             {category.expanded && (
                               <div className="p-4">
@@ -1865,6 +2040,150 @@ function NFTGeneratorContent() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setRuleDialogOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Layer Rules Dialog */}
+      <Dialog open={layerRuleDialogOpen} onOpenChange={setLayerRuleDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="w-5 h-5 text-primary" />
+              Layer Rules - {categories.find(c => c.id === selectedLayerId)?.name || "(No layer)"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedLayerId && (
+            <div className="space-y-6 py-4">
+              {/* Optional toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Optional Layer</p>
+                  <p className="text-xs text-muted-foreground">Layer ini bisa dilewati saat generate</p>
+                </div>
+                <button
+                  onClick={() => toggleLayerOptional(selectedLayerId)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    categories.find(c => c.id === selectedLayerId)?.isOptional
+                      ? "bg-primary"
+                      : "bg-secondary"
+                  }`}
+                >
+                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${
+                    categories.find(c => c.id === selectedLayerId)?.isOptional
+                      ? "translate-x-6"
+                      : "translate-x-0.5"
+                  }`} />
+                </button>
+              </div>
+
+              {/* Current layer rules */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium">Active Layer Rules</h4>
+                {(() => {
+                  const layer = categories.find(c => c.id === selectedLayerId);
+                  const rules = layer?.layerRules || [];
+                  if (rules.length === 0) {
+                    return <p className="text-sm text-muted-foreground">Belum ada rules untuk layer ini</p>;
+                  }
+                  return (
+                    <div className="space-y-2">
+                      {rules.map((rule) => {
+                        const targetLayer = categories.find(c => c.id === rule.targetLayerId);
+                        return (
+                          <div key={rule.id} className="flex items-center justify-between bg-secondary/30 rounded-lg p-3">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={rule.type === "layer_doesnt_mix" ? "destructive" : "default"}>
+                                {rule.type === "layer_doesnt_mix" ? "Doesn't Mix" : "Requires"}
+                              </Badge>
+                              <span className="text-sm">{targetLayer?.name || "Unknown"}</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeLayerRule(rule.id)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Add new layer rule */}
+              <div className="border-t border-border pt-4 space-y-4">
+                <h4 className="text-sm font-medium">Add New Layer Rule</h4>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm text-muted-foreground">Rule Type</label>
+                    <Select
+                      value={newLayerRuleType}
+                      onValueChange={(v) => setNewLayerRuleType(v as LayerRuleType)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="layer_doesnt_mix">
+                          <div className="flex items-center gap-2">
+                            <Unlink className="w-4 h-4 text-destructive" />
+                            Doesn&apos;t Mix With
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="layer_requires">
+                          <div className="flex items-center gap-2">
+                            <LinkIcon className="w-4 h-4 text-primary" />
+                            Requires Layer
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm text-muted-foreground">Target Layer</label>
+                    <Select
+                      value={newLayerRuleTarget}
+                      onValueChange={setNewLayerRuleTarget}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pilih layer..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories
+                          .filter(c => c.id !== selectedLayerId)
+                          .map(c => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => addLayerRule()}
+                  disabled={!newLayerRuleTarget}
+                  className="w-full gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  Add Layer Rule
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLayerRuleDialogOpen(false)}>
               Done
             </Button>
           </DialogFooter>
