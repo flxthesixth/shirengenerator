@@ -503,7 +503,8 @@ function NFTGeneratorContent() {
 
   const applyAlwaysPairsRules = (
     selectedTraits: Map<string, string>,
-    allCategories: TraitCategory[]
+    allCategories: TraitCategory[],
+    liveCounts: Map<string, number>
   ): Map<string, string> => {
     const result = new Map(selectedTraits);
     let changed = true;
@@ -522,6 +523,13 @@ function NFTGeneratorContent() {
             for (const targetId of rule.targetTraitIds) {
               const targetTrait = getTraitById(targetId);
               if (targetTrait && !result.has(targetTrait.categoryId)) {
+                // Respect rarityCount limit — don't force in a trait that has
+                // already reached its count cap.
+                if ((targetTrait.rarityMode ?? "count") === "count") {
+                  const currentCount = liveCounts.get(targetId) ?? 0;
+                  const limit = targetTrait.rarityCount ?? 50;
+                  if (currentCount >= limit) continue;
+                }
                 result.set(targetTrait.categoryId, targetId);
                 changed = true;
               }
@@ -576,7 +584,7 @@ function NFTGeneratorContent() {
       selectedTraits.set(category.id, selectedTrait.id);
     }
 
-    const finalTraits = applyAlwaysPairsRules(selectedTraits, categories);
+    const finalTraits = applyAlwaysPairsRules(selectedTraits, categories, traitCounts);
 
     for (const category of categories) {
       const traitId = finalTraits.get(category.id);
@@ -584,6 +592,13 @@ function NFTGeneratorContent() {
 
       const selectedTrait = category.images.find((img) => img.id === traitId);
       if (!selectedTrait) continue;
+
+      // Final guard: double-check count limit even for traits added via rules.
+      if ((selectedTrait.rarityMode ?? "count") === "count") {
+        const currentCount = traitCounts.get(selectedTrait.id) ?? 0;
+        const limit = selectedTrait.rarityCount ?? 50;
+        if (currentCount >= limit) continue;
+      }
 
       traits.push({
         category: category.name,
