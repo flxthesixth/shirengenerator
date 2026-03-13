@@ -435,16 +435,44 @@ function NFTGeneratorContent() {
   };
 
   // Local version of selectTraitByRarity that accepts a getTraitById function
-  // to avoid stale closure issues during async generation
+  // to avoid stale closure issues during async generation.
+  // BIDIRECTIONAL rules: doesnt_mix works both ways (A↔B exclusion).
   const selectTraitByRarityLocal = (
     images: TraitImage[],
     selectedTraits: Map<string, string>,
     liveCounts: Map<string, number>,
-    getTraitByIdFn: (id: string) => (TraitImage & { categoryId: string; categoryName: string }) | null
+    getTraitByIdFn: (id: string) => (TraitImage & { categoryId: string; categoryName: string }) | null,
+    allCategories: TraitCategory[]
   ): TraitImage | null => {
     if (images.length === 0) return null;
 
+    // Build sets of trait IDs that the already-selected traits have doesnt_mix rules against.
+    // This allows bidirectional exclusion: if B is selected and B has "doesnt_mix → A",
+    // then A should be excluded even if A has no rule pointing to B.
+    const excludedBySelectedTraits = new Set<string>();
+    for (const selectedTraitId of selectedTraits.values()) {
+      const selectedTrait = getTraitByIdFn(selectedTraitId);
+      if (!selectedTrait) continue;
+      // Find the full trait object to access its rules
+      for (const cat of allCategories) {
+        const fullTrait = cat.images.find((img) => img.id === selectedTraitId);
+        if (fullTrait) {
+          for (const rule of fullTrait.rules) {
+            if (rule.type === "doesnt_mix") {
+              rule.targetTraitIds.forEach((id) => excludedBySelectedTraits.add(id));
+            }
+          }
+          break;
+        }
+      }
+    }
+
     const validImages = images.filter((img) => {
+      // Bidirectional doesnt_mix: excluded if any selected trait has doesnt_mix → this trait
+      if (excludedBySelectedTraits.has(img.id)) {
+        return false;
+      }
+
       for (const rule of img.rules) {
         if (rule.type === "doesnt_mix") {
           for (const targetId of rule.targetTraitIds) {
@@ -509,6 +537,8 @@ function NFTGeneratorContent() {
   };
 
   // Local version of applyAlwaysPairsRules that accepts a getTraitById function
+  // Now BIDIRECTIONAL: if A has "always_pairs → B", selecting either A or B
+  // will pull in the other (respecting count limits).
   const applyAlwaysPairsRulesLocal = (
     selectedTraits: Map<string, string>,
     allCategories: TraitCategory[],
@@ -516,8 +546,24 @@ function NFTGeneratorContent() {
     getTraitByIdFn: (id: string) => (TraitImage & { categoryId: string; categoryName: string }) | null
   ): Map<string, string> => {
     const result = new Map(selectedTraits);
-    let changed = true;
 
+    // Build reverse lookup: targetId → [sourceTraitIds that have always_pairs pointing to it]
+    const reverseAlwaysPairs = new Map<string, string[]>();
+    for (const category of allCategories) {
+      for (const img of category.images) {
+        for (const rule of img.rules) {
+          if (rule.type === "always_pairs") {
+            for (const targetId of rule.targetTraitIds) {
+              const existing = reverseAlwaysPairs.get(targetId) || [];
+              existing.push(img.id);
+              reverseAlwaysPairs.set(targetId, existing);
+            }
+          }
+        }
+      }
+    }
+
+    let changed = true;
     while (changed) {
       changed = false;
       for (const [catId, traitId] of result) {
@@ -527,6 +573,7 @@ function NFTGeneratorContent() {
         const trait = category.images.find((img) => img.id === traitId);
         if (!trait) continue;
 
+        // Forward direction: this trait's rules → pull in targets
         for (const rule of trait.rules) {
           if (rule.type === "always_pairs") {
             for (const targetId of rule.targetTraitIds) {
@@ -541,6 +588,21 @@ function NFTGeneratorContent() {
                 changed = true;
               }
             }
+          }
+        }
+
+        // Reverse direction: other traits that have always_pairs → this trait → pull them in
+        const sourcesPointingHere = reverseAlwaysPairs.get(traitId) || [];
+        for (const sourceId of sourcesPointingHere) {
+          const sourceTrait = getTraitByIdFn(sourceId);
+          if (sourceTrait && !result.has(sourceTrait.categoryId)) {
+            if ((sourceTrait.rarityMode ?? "count") === "count") {
+              const currentCount = liveCounts.get(sourceId) ?? 0;
+              const limit = sourceTrait.rarityCount ?? 50;
+              if (currentCount >= limit) continue;
+            }
+            result.set(sourceTrait.categoryId, sourceId);
+            changed = true;
           }
         }
       }
@@ -590,11 +652,11 @@ function NFTGeneratorContent() {
       let selectedTrait: TraitImage | null = null;
 
       if (appearsAtLeastTraits.length > 0) {
-        selectedTrait = selectTraitByRarityLocal(appearsAtLeastTraits, selectedTraits, traitCounts, getTraitByIdLocal);
+        selectedTrait = selectTraitByRarityLocal(appearsAtLeastTraits, selectedTraits, traitCounts, getTraitByIdLocal, currentCategories);
       }
 
       if (!selectedTrait) {
-        selectedTrait = selectTraitByRarityLocal(category.images, selectedTraits, traitCounts, getTraitByIdLocal);
+        selectedTrait = selectTraitByRarityLocal(category.images, selectedTraits, traitCounts, getTraitByIdLocal, currentCategories);
       }
 
       if (!selectedTrait) continue;
