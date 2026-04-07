@@ -709,64 +709,92 @@ function NFTGeneratorContent() {
       return null;
     };
 
+    // ===== PHASE 1: Determine which layers to include/exclude =====
+
     // Build bidirectional layer_doesnt_mix exclusion map
     const layerExclusionMap = new Map<string, Set<string>>();
     for (const cat of currentCategories) {
       for (const rule of cat.layerRules || []) {
         if (rule.type === "layer_doesnt_mix") {
-          // Forward: cat → target
-          if (!layerExclusionMap.has(cat.id)) {
-            layerExclusionMap.set(cat.id, new Set());
-          }
+          if (!layerExclusionMap.has(cat.id)) layerExclusionMap.set(cat.id, new Set());
           layerExclusionMap.get(cat.id)!.add(rule.targetLayerId);
-          // Reverse: target → cat (bidirectional)
-          if (!layerExclusionMap.has(rule.targetLayerId)) {
-            layerExclusionMap.set(rule.targetLayerId, new Set());
-          }
+          if (!layerExclusionMap.has(rule.targetLayerId)) layerExclusionMap.set(rule.targetLayerId, new Set());
           layerExclusionMap.get(rule.targetLayerId)!.add(cat.id);
         }
       }
     }
 
-    // Build layer_requires map (also bidirectional)
+    // Build unidirectional layer_requires map (A requires B ≠ B requires A)
     const layerRequiresMap = new Map<string, Set<string>>();
     for (const cat of currentCategories) {
       for (const rule of cat.layerRules || []) {
         if (rule.type === "layer_requires") {
-          // Forward: cat requires target
-          if (!layerRequiresMap.has(cat.id)) {
-            layerRequiresMap.set(cat.id, new Set());
-          }
+          if (!layerRequiresMap.has(cat.id)) layerRequiresMap.set(cat.id, new Set());
           layerRequiresMap.get(cat.id)!.add(rule.targetLayerId);
-          // Reverse: target is required by cat (so if target is selected, cat should also be)
-          if (!layerRequiresMap.has(rule.targetLayerId)) {
-            layerRequiresMap.set(rule.targetLayerId, new Set());
-          }
-          layerRequiresMap.get(rule.targetLayerId)!.add(cat.id);
         }
       }
     }
 
-    // Track which layers are excluded due to layer rules
-    const excludedLayers = new Set<string>();
-    // Track which layers MUST have a trait due to layer_requires
-    const requiredLayers = new Set<string>();
+    // Step 1: Start with all layers included, handle optional layers
+    const includedLayers = new Set<string>(currentCategories.map(c => c.id));
+    const optionalSkipped = new Set<string>();
+
+    for (const cat of currentCategories) {
+      if (cat.isOptional && Math.random() < 0.3) {
+        optionalSkipped.add(cat.id);
+        includedLayers.delete(cat.id);
+      }
+    }
+
+    // Step 2: Resolve layer_requires — if an included layer requires another, force-include it
+    let requiresChanged = true;
+    while (requiresChanged) {
+      requiresChanged = false;
+      for (const layerId of includedLayers) {
+        const required = layerRequiresMap.get(layerId);
+        if (!required) continue;
+        for (const reqId of required) {
+          if (!includedLayers.has(reqId)) {
+            includedLayers.add(reqId);
+            optionalSkipped.delete(reqId);
+            requiresChanged = true;
+          }
+        }
+      }
+    }
+
+    // Step 3: Resolve layer_doesnt_mix — if two included layers conflict, randomly exclude one
+    for (const cat of currentCategories) {
+      if (!includedLayers.has(cat.id)) continue;
+      const conflicts = layerExclusionMap.get(cat.id);
+      if (!conflicts) continue;
+      for (const conflictId of conflicts) {
+        if (!includedLayers.has(conflictId)) continue;
+        // Both are included but conflict — randomly pick one to exclude
+        // Prefer to exclude optional layers; if neither is optional, random choice
+        const catIsOptional = currentCategories.find(c => c.id === cat.id)?.isOptional;
+        const conflictIsOptional = currentCategories.find(c => c.id === conflictId)?.isOptional;
+
+        let toExclude: string;
+        if (catIsOptional && !conflictIsOptional) {
+          toExclude = cat.id;
+        } else if (!catIsOptional && conflictIsOptional) {
+          toExclude = conflictId;
+        } else {
+          toExclude = Math.random() < 0.5 ? cat.id : conflictId;
+        }
+        includedLayers.delete(toExclude);
+      }
+    }
+
+    // ===== PHASE 2: Select traits only for included layers =====
 
     const selectedTraits = new Map<string, string>();
     const traits: { category: string; trait: string; traitId: string }[] = [];
 
     for (const category of currentCategories) {
+      if (!includedLayers.has(category.id)) continue;
       if (selectedTraits.has(category.id)) continue;
-      
-      // Skip if this layer is excluded by a layer_doesnt_mix rule
-      if (excludedLayers.has(category.id)) continue;
-
-      // Check if this is an optional layer and randomly skip it
-      // (but not if it's required by another selected layer)
-      if (category.isOptional && !requiredLayers.has(category.id)) {
-        // 30% chance to skip optional layers
-        if (Math.random() < 0.3) continue;
-      }
 
       const appearsAtLeastTraits = category.images.filter((img) =>
         img.rules.some((r) => {
@@ -791,18 +819,6 @@ function NFTGeneratorContent() {
       if (!selectedTrait) continue;
 
       selectedTraits.set(category.id, selectedTrait.id);
-
-      // Mark conflicting layers as excluded (layer_doesnt_mix)
-      const conflictingLayers = layerExclusionMap.get(category.id);
-      if (conflictingLayers) {
-        conflictingLayers.forEach((layerId) => excludedLayers.add(layerId));
-      }
-
-      // Mark required layers (layer_requires)
-      const requiredByThisLayer = layerRequiresMap.get(category.id);
-      if (requiredByThisLayer) {
-        requiredByThisLayer.forEach((layerId) => requiredLayers.add(layerId));
-      }
     }
 
     const finalTraits = applyAlwaysPairsRulesLocal(selectedTraits, currentCategories, traitCounts, getTraitByIdLocal);
