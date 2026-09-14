@@ -59,6 +59,7 @@ import {
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { createClient } from "@/lib/supabase/client";
+import { useAccess } from "@/lib/access";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -176,9 +177,15 @@ const LAYER_RULE_COLORS: Record<LayerRuleType, "default" | "secondary" | "destru
 function NFTGeneratorContent() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState("");
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
+  const [isActivatingToken, setIsActivatingToken] = useState(false);
+  const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  const [isCreatingToken, setIsCreatingToken] = useState(false);
   const supabase = createClient();
   const searchParams = useSearchParams();
   const { theme, setTheme } = useTheme();
+  const access = useAccess(user?.email ?? null);
   const [mounted, setMounted] = useState(false);
   const [categories, setCategories] = useState<TraitCategory[]>([]);
   const [generatedNFTs, setGeneratedNFTs] = useState<GeneratedNFT[]>([]);
@@ -908,6 +915,19 @@ function NFTGeneratorContent() {
   };
 
   const generateCollection = async () => {
+    if (!user) {
+      setGenerationNotice("Login diperlukan sebelum generate.");
+      return;
+    }
+    if (!access.hasAccess) {
+      setGenerationNotice("Masukkan token akses sebelum generate.");
+      return;
+    }
+    const quota = await access.consume(collectionSize);
+    if (!quota.ok) {
+      setGenerationNotice(quota.error ?? "Generate tidak tersedia.");
+      return;
+    }
     if (
       categories.length === 0 ||
       categories.every((c) => c.images.length === 0)
@@ -1498,6 +1518,90 @@ function NFTGeneratorContent() {
 
     {/* Main Content Start */}
     <main className="container mx-auto px-2 py-8 max-w-4xl flex flex-col gap-8">
+      {!isSessionLoading && user && !access.hasAccess && (
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Aktivasi Token</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Masukkan token akses dari owner untuk mulai generate.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Input
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                placeholder="TRIAL-XXXXXXXX... / PRO-XXXXXXXX..."
+                className="bg-secondary/30 border-border/50 font-mono"
+              />
+              <Button
+                onClick={async () => {
+                  setIsActivatingToken(true);
+                  setAccessMessage(null);
+                  const res = await access.activate(accessToken);
+                  setAccessMessage(res.ok ? "Token aktif." : res.error ?? "Gagal aktivasi.");
+                  if (res.ok) setAccessToken("");
+                  setIsActivatingToken(false);
+                }}
+                disabled={isActivatingToken || accessToken.trim().length === 0}
+              >
+                {isActivatingToken ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Aktivasi"}
+              </Button>
+            </div>
+            {accessMessage && (
+              <p className="text-xs text-muted-foreground">{accessMessage}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {access.isOwner && (
+        <Card className="border-primary/40 bg-primary/5 backdrop-blur-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Owner: Buat Token</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                disabled={isCreatingToken}
+                onClick={async () => {
+                  setIsCreatingToken(true);
+                  const res = await access.createToken("trial");
+                  setIssuedToken(res.token ?? null);
+                  setAccessMessage(res.ok ? "Token trial dibuat. Copy sekarang, tidak bisa dilihat lagi." : res.error ?? null);
+                  setIsCreatingToken(false);
+                }}
+              >
+                Trial 7 hari / 2.000 generate
+              </Button>
+              <Button
+                variant="outline"
+                disabled={isCreatingToken}
+                onClick={async () => {
+                  setIsCreatingToken(true);
+                  const res = await access.createToken("pro");
+                  setIssuedToken(res.token ?? null);
+                  setAccessMessage(res.ok ? "Token pro dibuat. Copy sekarang, tidak bisa dilihat lagi." : res.error ?? null);
+                  setIsCreatingToken(false);
+                }}
+              >
+                Pro 30 hari / Unlimited
+              </Button>
+            </div>
+            {issuedToken && (
+              <Input readOnly value={issuedToken} onFocus={(e) => e.currentTarget.select()} className="font-mono bg-secondary/30" />
+            )}
+            {accessMessage && <p className="text-xs text-muted-foreground">{accessMessage}</p>}
+          </CardContent>
+        </Card>
+      )}
+      {access.hasAccess && (
+        <p className="text-xs text-muted-foreground">
+          Plan: {access.plan === "pro" ? "Pro (unlimited)" : "Trial"} · Sisa generate:{" "}
+          {access.maxGenerations === 0 ? "unlimited" : Math.max(0, access.maxGenerations - access.usedGenerations)}
+          {access.expiresAt ? ` · aktif sampai ${new Date(access.expiresAt).toLocaleDateString()}` : ""}
+        </p>
+      )}
       {/* Trait Layers Card */}
       <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                 <CardHeader className="pb-4">
