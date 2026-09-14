@@ -1,1 +1,1 @@
-# Shirenhouse - NFT Generator
+# NFT Generator

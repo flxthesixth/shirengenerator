@@ -3,7 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
-  title: "SHIREN Generator",
+  title: "NFT Generator",
   description: "Build deterministic NFT collections.",
 };
 

@@ -187,7 +187,7 @@ function NFTGeneratorContent() {
   const [generationNotice, setGenerationNotice] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ width: 512, height: 512 });
-  const [collectionName, setCollectionName] = useState("SHIREN Collection");
+  const [collectionName, setCollectionName] = useState("My Collection");
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -1378,7 +1378,7 @@ function NFTGeneratorContent() {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                    SHIREN NFT Generator
+                    NFT Generator
                   </h1>
                   <p className="text-xs text-muted-foreground">
                     by flxthesixth.
@@ -1834,7 +1834,7 @@ function NFTGeneratorContent() {
                         <Input
                           value={collectionName}
                           onChange={(e) => setCollectionName(e.target.value)}
-                          placeholder="SHIREN Collection"
+                          placeholder="My Collection"
                           className="bg-secondary/30 border-border/50"
                         />
                       </div>
