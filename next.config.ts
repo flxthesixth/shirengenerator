@@ -1,34 +1,24 @@
 import type { NextConfig } from "next";
-import path from "node:path";
 
-const LOADER = path.resolve(__dirname, 'src/visual-edits/component-tagger-loader.js');
+const supabaseHost = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname;
+  } catch {
+    return "";
+  }
+})();
 
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-      {
-        protocol: 'http',
-        hostname: '**',
-      },
-    ],
+    // ponytail: allowlist only what the app actually loads remotely; add
+    // coinvision/asset CDNs here when they become real usage.
+    remotePatterns: supabaseHost
+      ? [
+          { protocol: "https", hostname: supabaseHost },
+          { protocol: "https", hostname: "**.supabase.co" },
+        ]
+      : [{ protocol: "https", hostname: "**.supabase.co" }],
   },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  turbopack: {
-    rules: {
-      "*.{jsx,tsx}": {
-        loaders: [LOADER]
-      }
-    }
-  }
 };
 
 export default nextConfig;

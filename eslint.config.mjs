@@ -18,7 +18,9 @@ const eslintConfig = [
       '@typescript-eslint/no-explicit-any': 'off',
       'react-hooks/exhaustive-deps': 'off',
       'import/no-unresolved': 'error',
-      'import/named': 'error',
+      // Type-only re-exports from CJS/ESM-hybrid packages (class-variance-authority)
+      // confuse import/named's resolver; tsc --noEmit is the authority for named exports.
+      'import/named': 'off',
       'import/default': 'error',
       'import/namespace': 'error',
       'import/no-absolute-path': 'error',

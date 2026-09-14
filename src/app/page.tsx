@@ -63,7 +63,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
-import type { User as SupabaseUser } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session, User as SupabaseUser } from "@supabase/supabase-js";
 
 type RuleType = "doesnt_mix" | "only_mix" | "always_pairs" | "appears_at_least";
 type LayerRuleType = "layer_doesnt_mix" | "layer_requires";
@@ -85,6 +85,7 @@ interface TraitImage {
   id: string;
   name: string;
   dataUrl: string;
+  storagePath?: string;
   rarity: number; // percentage mode
   rarityCount?: number; // count mode
   rarityMode?: "percentage" | "count";
@@ -103,8 +104,49 @@ interface TraitCategory {
 
 interface GeneratedNFT {
   id: string;
+  dna: string;
   dataUrl: string;
+  storagePath?: string;
   traits: { category: string; trait: string; traitId: string }[];
+}
+
+// ===== Deterministic PRNG (mulberry32) + string seed hash =====
+// Same seed + same categories => identical trait selection sequence.
+function hashSeed(str: string): number {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Canonical combination fingerprint: ordered "catId:traitId" pairs.
+function buildDna(selected: Map<string, string>): string {
+  return Array.from(selected.entries())
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([catId, traitId]) => `${catId}:${traitId}`)
+    .join("|");
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [meta, b64] = dataUrl.split(",");
+  const mime = meta.match(/data:([^;]+)/)?.[1] ?? "image/png";
+  const bytes = atob(b64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mime });
 }
 
 const RULE_LABELS: Record<RuleType, string> = {
@@ -141,6 +183,8 @@ function NFTGeneratorContent() {
   const [categories, setCategories] = useState<TraitCategory[]>([]);
   const [generatedNFTs, setGeneratedNFTs] = useState<GeneratedNFT[]>([]);
   const [collectionSize, setCollectionSize] = useState(10);
+  const [generationSeed, setGenerationSeed] = useState("");
+  const [generationNotice, setGenerationNotice] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ width: 512, height: 512 });
   const [collectionName, setCollectionName] = useState("SHIREN Collection");
@@ -186,7 +230,7 @@ function NFTGeneratorContent() {
     
     getUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       setUser(session?.user ?? null);
       setIsSessionLoading(false);
     });
@@ -518,7 +562,8 @@ function NFTGeneratorContent() {
     selectedTraits: Map<string, string>,
     liveCounts: Map<string, number>,
     getTraitByIdFn: (id: string) => (TraitImage & { categoryId: string; categoryName: string }) | null,
-    allCategories: TraitCategory[]
+    allCategories: TraitCategory[],
+    rng: () => number
   ): TraitImage | null => {
     if (images.length === 0) return null;
 
@@ -603,7 +648,7 @@ function NFTGeneratorContent() {
     if (candidates.length === 0) return null;
 
     const totalWeight = candidates.reduce((sum, item) => sum + item.weight, 0);
-    let random = Math.random() * totalWeight;
+    let random = rng() * totalWeight;
     for (const item of candidates) {
       random -= item.weight;
       if (random <= 0) return item.img;
@@ -689,8 +734,9 @@ function NFTGeneratorContent() {
 
   const generateSingleNFT = async (
     traitCounts: Map<string, number>,
-    // Pass in the latest categories snapshot to avoid stale closure
-    currentCategories: TraitCategory[]
+    // Pass in the latest categories snapshot to avoid stale closure.
+    currentCategories: TraitCategory[],
+    rng: () => number
   ): Promise<GeneratedNFT | null> => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -740,7 +786,7 @@ function NFTGeneratorContent() {
     const optionalSkipped = new Set<string>();
 
     for (const cat of currentCategories) {
-      if (cat.isOptional && Math.random() < 0.3) {
+      if (cat.isOptional && rng() < 0.3) {
         optionalSkipped.add(cat.id);
         includedLayers.delete(cat.id);
       }
@@ -781,7 +827,7 @@ function NFTGeneratorContent() {
         } else if (!catIsOptional && conflictIsOptional) {
           toExclude = conflictId;
         } else {
-          toExclude = Math.random() < 0.5 ? cat.id : conflictId;
+          toExclude = rng() < 0.5 ? cat.id : conflictId;
         }
         includedLayers.delete(toExclude);
       }
@@ -809,11 +855,11 @@ function NFTGeneratorContent() {
       let selectedTrait: TraitImage | null = null;
 
       if (appearsAtLeastTraits.length > 0) {
-        selectedTrait = selectTraitByRarityLocal(appearsAtLeastTraits, selectedTraits, traitCounts, getTraitByIdLocal, currentCategories);
+        selectedTrait = selectTraitByRarityLocal(appearsAtLeastTraits, selectedTraits, traitCounts, getTraitByIdLocal, currentCategories, rng);
       }
 
       if (!selectedTrait) {
-        selectedTrait = selectTraitByRarityLocal(category.images, selectedTraits, traitCounts, getTraitByIdLocal, currentCategories);
+        selectedTrait = selectTraitByRarityLocal(category.images, selectedTraits, traitCounts, getTraitByIdLocal, currentCategories, rng);
       }
 
       if (!selectedTrait) continue;
@@ -823,39 +869,39 @@ function NFTGeneratorContent() {
 
     const finalTraits = applyAlwaysPairsRulesLocal(selectedTraits, currentCategories, traitCounts, getTraitByIdLocal);
 
-    for (const category of currentCategories) {
+    // A rule-created trait must be valid and drawable. Never create a partial NFT.
+    const resolved = currentCategories.flatMap((category) => {
       const traitId = finalTraits.get(category.id);
-      if (!traitId) continue;
+      if (!traitId) return [];
+      const trait = category.images.find((img) => img.id === traitId);
+      return trait ? [{ category, trait }] : [];
+    });
+    if (resolved.length !== finalTraits.size) return null;
 
-      const selectedTrait = category.images.find((img) => img.id === traitId);
-      if (!selectedTrait) continue;
-
-      // Final guard: double-check count limit even for traits added via rules.
-      if ((selectedTrait.rarityMode ?? "count") === "count") {
-        const currentCount = traitCounts.get(selectedTrait.id) ?? 0;
-        const limit = selectedTrait.rarityCount ?? 50;
-        if (currentCount >= limit) continue;
+    for (const { trait } of resolved) {
+      if ((trait.rarityMode ?? "count") === "count") {
+        const currentCount = traitCounts.get(trait.id) ?? 0;
+        if (currentCount >= (trait.rarityCount ?? 50)) return null;
       }
+    }
 
-      traits.push({
-        category: category.name,
-        trait: selectedTrait.name,
-        traitId: selectedTrait.id,
-      });
-
-      await new Promise<void>((resolve) => {
+    const dna = buildDna(finalTraits);
+    for (const { category, trait } of resolved) {
+      traits.push({ category: category.name, trait: trait.name, traitId: trait.id });
+      await new Promise<void>((resolveImage) => {
         const img = new Image();
         img.onload = () => {
           ctx.drawImage(img, 0, 0, canvasSize.width, canvasSize.height);
-          resolve();
+          resolveImage();
         };
-        img.onerror = () => resolve();
-        img.src = selectedTrait.dataUrl;
+        img.onerror = () => resolveImage();
+        img.src = trait.dataUrl;
       });
     }
 
     return {
-      id: `nft-${Date.now()}-${Math.random()}`,
+      id: `nft-${dna}`,
+      dna,
       dataUrl: canvas.toDataURL("image/png"),
       traits,
     };
@@ -871,55 +917,61 @@ function NFTGeneratorContent() {
 
     setIsGenerating(true);
     setGeneratedNFTs([]);
+    setGenerationNotice(null);
 
     const nfts: GeneratedNFT[] = [];
+    const seenDna = new Set<string>();
     const traitCounts = new Map<string, number>();
+
+    // Deterministic RNG: same seed + same layers => same ordered collection.
+    const effectiveSeed = generationSeed.trim() || `${collectionName}-${Date.now()}`;
+    const rng = mulberry32(hashSeed(effectiveSeed));
 
     // Capture the current state of categories at the start of generation
     // to avoid stale closure issues during async operations
     const currentCategories = categoriesRef.current;
 
     const PREVIEW_BATCH = 5; // update UI every N NFTs to reduce re-renders
+    const MAX_ATTEMPTS_PER_SLOT = 50;
+    let exhausted = false;
+
     for (let i = 0; i < collectionSize; i++) {
-      const nft = await generateSingleNFT(traitCounts, currentCategories);
-      if (nft) {
-        nft.traits.forEach((t) => {
-          traitCounts.set(t.traitId, (traitCounts.get(t.traitId) || 0) + 1);
-        });
-        nfts.push(nft);
-        // Batch UI updates to avoid a re-render on every single NFT
-        if (i % PREVIEW_BATCH === PREVIEW_BATCH - 1 || i === collectionSize - 1) {
-          setGeneratedNFTs([...nfts]);
-          await new Promise((r) => setTimeout(r, 0)); // yield to browser
+      let nft: GeneratedNFT | null = null;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_SLOT; attempt++) {
+        const candidate = await generateSingleNFT(traitCounts, currentCategories, rng);
+        if (candidate && !seenDna.has(candidate.dna)) {
+          nft = candidate;
+          break;
         }
+        if (!candidate) break; // structural failure: rules/limits, retrying won't help
+      }
+      if (!nft) {
+        exhausted = true;
+        break;
+      }
+      seenDna.add(nft.dna);
+      nft.traits.forEach((t) => {
+        traitCounts.set(t.traitId, (traitCounts.get(t.traitId) || 0) + 1);
+      });
+      nfts.push(nft);
+      // Batch UI updates to avoid a re-render on every single NFT
+      if (i % PREVIEW_BATCH === PREVIEW_BATCH - 1 || i === collectionSize - 1) {
+        setGeneratedNFTs([...nfts]);
+        await new Promise((r) => setTimeout(r, 0)); // yield to browser
       }
       await new Promise((r) => setTimeout(r, 10));
     }
 
     setIsGenerating(false);
 
-    // Auto-save to cloud when user is logged in
-    if (user && nfts.length > 0) {
-      try {
-        const response = await fetch("/api/collections", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: collectionName,
-            canvasWidth: canvasSize.width,
-            canvasHeight: canvasSize.height,
-            categories,
-            generatedNFTs: nfts,
-          }),
-        });
-
-        if (response.ok) {
-          fetchCollections();
-        }
-      } catch (error) {
-        console.error("Error auto-saving collection:", error);
-      }
+    if (exhausted) {
+      setGenerationNotice(
+        `Only ${nfts.length} of ${collectionSize} unique NFTs are reachable with the current layers, rules, and limits. ${nfts.length > 0 ? "Showing what was generated." : "Add more traits or relax rules/limits."}`
+      );
     }
+
+    // Cloud save stays explicit. It avoids background write races and lets the
+    // user name/check a generated collection before Storage upload.
   };
 
   const downloadSingleNFT = (nft: GeneratedNFT, index: number) => {
@@ -944,6 +996,7 @@ function NFTGeneratorContent() {
         name: `${collectionName} #${index + 1}`,
         description: `NFT from ${collectionName}`,
         image: `${index + 1}.png`,
+        dna: nft.dna,
         attributes: nft.traits.map((t) => ({
           trait_type: t.category,
           value: t.trait,
@@ -954,6 +1007,24 @@ function NFTGeneratorContent() {
         JSON.stringify(metadata, null, 2)
       );
     });
+
+    metadataFolder?.file(
+      "rarity-report.json",
+      JSON.stringify(
+        {
+          collection: collectionName,
+          generated: generatedNFTs.length,
+          traits: Object.values(rarityReport).map((entry) => ({
+            category: entry.category,
+            trait: entry.trait,
+            count: entry.count,
+            percent: Number(((entry.count / generatedNFTs.length) * 100).toFixed(2)),
+          })),
+        },
+        null,
+        2
+      )
+    );
 
     const content = await zip.generateAsync({ type: "blob" });
     saveAs(content, `${collectionName.replace(/\s+/g, "_")}.zip`);
@@ -989,7 +1060,7 @@ function NFTGeneratorContent() {
     await supabase.auth.signOut();
   };
 
-  // Save collection to database
+  // Save collection to database (metadata + files to Storage)
   const saveCollection = async () => {
     if (!user || generatedNFTs.length === 0) return;
     const normalizedName = collectionName.trim();
@@ -1000,25 +1071,89 @@ function NFTGeneratorContent() {
 
     setIsSaving(true);
     try {
-      const response = await fetch("/api/collections", {
+      // 1) Create the collection row first (metadata only) to get its id.
+      const createResponse = await fetch("/api/collections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: normalizedName,
           canvasWidth: canvasSize.width,
           canvasHeight: canvasSize.height,
-          categories,
-          generatedNFTs,
+          categories: categories.map((c) => ({
+            ...c,
+            images: c.images.map(({ dataUrl: _omit, ...meta }) => meta),
+          })),
+          generatedNFTs: generatedNFTs.map((n) => ({ dna: n.dna, traits: n.traits })),
           isDraft: false,
         }),
       });
 
-      if (response.ok) {
-        alert("Collection saved successfully!");
-        fetchCollections();
-      } else {
-        alert("Failed to save collection");
+      if (!createResponse.ok) {
+        const err = await createResponse.json().catch(() => ({}));
+        alert(err.error || "Failed to save collection");
+        return;
       }
+
+      const { collectionId } = await createResponse.json();
+
+      // 2) Upload trait source images + rendered PNGs to Storage (owner-scoped paths).
+      const uploads: Promise<unknown>[] = [];
+      categories.forEach((cat) => {
+        cat.images.forEach((img) => {
+          if (!img.dataUrl) return;
+          const blob = dataUrlToBlob(img.dataUrl);
+          const ext = blob.type === "image/webp" ? "webp" : blob.type === "image/jpeg" ? "jpg" : "png";
+          const path = `${user.id}/${collectionId}/traits/${cat.id}/${img.id}.${ext}`;
+          uploads.push(
+            supabase.storage
+              .from("nft-assets")
+              .upload(path, blob, { contentType: blob.type, upsert: true })
+          );
+          img.storagePath = path;
+        });
+      });
+      generatedNFTs.forEach((nft, i) => {
+        const blob = dataUrlToBlob(nft.dataUrl);
+        const path = `${user.id}/${collectionId}/renders/${i + 1}.png`;
+        uploads.push(
+          supabase.storage
+            .from("nft-assets")
+            .upload(path, blob, { contentType: "image/png", upsert: true })
+        );
+        nft.storagePath = path;
+      });
+
+      const results = await Promise.allSettled(uploads);
+      const failed = results.filter((r) => r.status === "rejected");
+      if (failed.length > 0) {
+        console.error("Some uploads failed:", failed);
+        alert("Sebagian file gagal diupload ke Storage. Metadata tetap tersimpan.");
+      }
+
+      // 3) Persist storage paths (metadata round-trip).
+      await fetch("/api/collections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: collectionId,
+          name: normalizedName,
+          canvasWidth: canvasSize.width,
+          canvasHeight: canvasSize.height,
+          categories: categories.map((c) => ({
+            ...c,
+            images: c.images.map(({ dataUrl: _omit, ...meta }) => meta),
+          })),
+          generatedNFTs: generatedNFTs.map((n) => ({
+            dna: n.dna,
+            storagePath: n.storagePath,
+            traits: n.traits,
+          })),
+          isDraft: false,
+        }),
+      });
+
+      alert("Collection saved successfully!");
+      fetchCollections();
     } catch (error) {
       console.error("Error saving collection:", error);
       alert("Failed to save collection");
@@ -1093,16 +1228,33 @@ function NFTGeneratorContent() {
           width: data.collection.canvasWidth,
           height: data.collection.canvasHeight,
         });
-        const normalizedCategories: TraitCategory[] = (data.collection.categories || []).map((category: TraitCategory) => ({
-          ...category,
-          images: (category.images || []).map((img) => ({
-            ...img,
-            rarityMode: img.rarityMode ?? "count",
-            rarityCount: img.rarityCount ?? 50,
-          })),
-        }));
+        const signedUrl = async (path?: string) => {
+          if (!path) return "";
+          const { data: signed } = await supabase.storage
+            .from("nft-assets")
+            .createSignedUrl(path, 60 * 60);
+          return signed?.signedUrl ?? "";
+        };
+        const normalizedCategories: TraitCategory[] = await Promise.all(
+          (data.collection.categories || []).map(async (category: TraitCategory) => ({
+            ...category,
+            images: await Promise.all((category.images || []).map(async (img) => ({
+              ...img,
+              dataUrl: img.dataUrl || await signedUrl(img.storagePath),
+              rarityMode: img.rarityMode ?? "count",
+              rarityCount: img.rarityCount ?? 50,
+            }))),
+          }))
+        );
+        const savedNfts: GeneratedNFT[] = await Promise.all(
+          (data.generatedNFTs || []).map(async (nft: GeneratedNFT & { storagePath?: string }) => ({
+            ...nft,
+            id: nft.id || `nft-${nft.dna}`,
+            dataUrl: nft.dataUrl || await signedUrl(nft.storagePath),
+          }))
+        );
         setCategories(normalizedCategories);
-        setGeneratedNFTs(data.generatedNFTs);
+        setGeneratedNFTs(savedNfts);
       }
     } catch (error) {
       console.error("Error loading collection:", error);
@@ -1135,7 +1287,6 @@ function NFTGeneratorContent() {
     } catch (error) {
       console.error("Error loading draft from localStorage:", error);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-load last collection when user logs in
@@ -1174,7 +1325,6 @@ function NFTGeneratorContent() {
     if (user) {
       loadLastCollection();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, searchParams]);
 
   useEffect(() => {
@@ -1197,10 +1347,17 @@ function NFTGeneratorContent() {
         });
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categories]);
 
   const currentTraitRules = selectedTrait?.image.rules || [];
+  const rarityReport = generatedNFTs.reduce<Record<string, { category: string; trait: string; count: number }>>((report, nft) => {
+    nft.traits.forEach((trait) => {
+      const key = `${trait.category}\u0000${trait.trait}`;
+      report[key] ??= { category: trait.category, trait: trait.trait, count: 0 };
+      report[key].count++;
+    });
+    return report;
+  }, {});
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -1696,6 +1853,17 @@ function NFTGeneratorContent() {
                           className="bg-secondary/30 border-border/50"
                         />
                       </div>
+                      <div className="w-44 space-y-2">
+                        <label className="text-sm text-muted-foreground">
+                          Seed (opsional)
+                        </label>
+                        <Input
+                          value={generationSeed}
+                          onChange={(e) => setGenerationSeed(e.target.value)}
+                          placeholder="acak"
+                          className="bg-secondary/30 border-border/50"
+                        />
+                      </div>
                       <Button
                         onClick={generateCollection}
                         disabled={
@@ -1791,6 +1959,26 @@ function NFTGeneratorContent() {
                     </div>
                   </CardHeader>
                   <CardContent>
+                    {generationNotice && (
+                      <div role="status" className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                        {generationNotice}
+                      </div>
+                    )}
+                    {generatedNFTs.length > 0 && (
+                      <details className="mb-4 rounded-md border border-border/50 bg-secondary/20 px-3 py-2">
+                        <summary className="cursor-pointer text-sm font-medium">Rarity report</summary>
+                        <div className="mt-3 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                          {Object.values(rarityReport)
+                            .sort((a, b) => a.category.localeCompare(b.category) || b.count - a.count)
+                            .map((entry) => (
+                              <div key={`${entry.category}-${entry.trait}`} className="flex justify-between gap-3">
+                                <span className="truncate">{entry.category}: {entry.trait}</span>
+                                <span>{entry.count} · {((entry.count / generatedNFTs.length) * 100).toFixed(1)}%</span>
+                              </div>
+                            ))}
+                        </div>
+                      </details>
+                    )}
                     <canvas
                       ref={canvasRef}
                       width={canvasSize.width}

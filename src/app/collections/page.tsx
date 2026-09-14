@@ -37,7 +37,7 @@ import {
   FileEdit,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { User as SupabaseUser } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session, User as SupabaseUser } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 
@@ -102,7 +102,7 @@ export default function CollectionsPage() {
 
     getUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       setUser(session?.user ?? null);
       setIsSessionLoading(false);
     });
@@ -114,7 +114,6 @@ export default function CollectionsPage() {
     if (user) {
       fetchCollections();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const fetchCollections = async () => {
