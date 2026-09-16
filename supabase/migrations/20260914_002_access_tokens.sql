@@ -64,9 +64,9 @@ begin
     where token_hash = p_token_hash and is_revoked = false;
   if not found then raise exception 'TOKEN_INVALID'; end if;
 
-  select * into v_existing from public.access_activations
-    where user_id = auth.uid() and is_active = true and expires_at > now()
-    order by expires_at desc limit 1;
+  select a.* into v_existing from public.access_activations a
+    where a.user_id = auth.uid() and a.is_active = true and a.expires_at > now()
+    order by a.expires_at desc limit 1;
   if found then
     return query select t.plan, v_existing.expires_at, v_existing.used_generations, t.max_generations
       from public.access_tokens t where t.token_hash = v_existing.token_hash;
