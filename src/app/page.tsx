@@ -1056,15 +1056,10 @@ function NFTGeneratorContent() {
 
   // Auth functions
   const handleGoogleLogin = async () => {
-    const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-    const baseUrl = configuredSiteUrl
-      ? configuredSiteUrl.replace(/\/$/, "")
-      : window.location.origin;
-
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${baseUrl}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
 
@@ -1518,7 +1513,23 @@ function NFTGeneratorContent() {
 
     {/* Main Content Start */}
     <main className="container mx-auto px-2 py-8 max-w-4xl flex flex-col gap-8">
-      {!isSessionLoading && user && !access.hasAccess && (
+      {!isSessionLoading && !user && (
+        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Masuk untuk melanjutkan</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Login dengan Google untuk membuka NFT Generator, lalu masukkan token akses dari owner.
+            </p>
+            <Button onClick={handleGoogleLogin} className="gap-2">
+              <LogIn className="w-4 h-4" />
+              Login with Google
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+      {!isSessionLoading && user && !access.loading && !access.hasAccess && (
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Aktivasi Token</CardTitle>
@@ -1602,6 +1613,8 @@ function NFTGeneratorContent() {
           {access.expiresAt ? ` · aktif sampai ${new Date(access.expiresAt).toLocaleDateString()}` : ""}
         </p>
       )}
+      {access.hasAccess && (
+        <>
       {/* Trait Layers Card */}
       <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                 <CardHeader className="pb-4">
@@ -2146,6 +2159,8 @@ function NFTGeneratorContent() {
                     )}
                   </CardContent>
                 </Card>
+        </>
+      )}
 
     </main>
 
