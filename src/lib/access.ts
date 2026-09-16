@@ -73,17 +73,17 @@ export function useAccess(userEmail: string | null | undefined) {
   const activate = useCallback(
     async (rawToken: string): Promise<{ ok: boolean; error?: string }> => {
       const supabase = createClient();
-      if (!supabase) return { ok: false, error: "Client tidak siap." };
+      if (!supabase) return { ok: false, error: "Client is not ready." };
       const token = normalizeToken(rawToken);
-      if (token.length < 16) return { ok: false, error: "Format token tidak valid." };
+      if (token.length < 16) return { ok: false, error: "Invalid token format." };
       const tokenHash = await sha256Hex(token);
       const { data, error } = await supabase.rpc("activate_access_token", {
         p_token_hash: tokenHash,
       });
       if (error) {
         const msg = error.message || "";
-        if (msg.includes("TOKEN_INVALID")) return { ok: false, error: "Token tidak dikenal atau sudah dicabut." };
-        return { ok: false, error: `Gagal aktivasi token: ${msg || "error tidak diketahui"}` };
+        if (msg.includes("TOKEN_INVALID")) return { ok: false, error: "Token is unknown or has been revoked." };
+        return { ok: false, error: `Token activation failed: ${msg || "unknown error"}` };
       }
       const row = data?.[0];
       setState({
@@ -103,15 +103,15 @@ export function useAccess(userEmail: string | null | undefined) {
   const consume = useCallback(
     async (count: number): Promise<{ ok: boolean; error?: string }> => {
       const supabase = createClient();
-      if (!supabase) return { ok: false, error: "Client tidak siap." };
+      if (!supabase) return { ok: false, error: "Client is not ready." };
       const { data, error } = await supabase.rpc("consume_generations", { p_count: count });
       if (error) {
         const msg = error.message || "";
         if (msg.includes("GENERATION_LIMIT_REACHED"))
-          return { ok: false, error: "Limit generate habis untuk token ini." };
+          return { ok: false, error: "Generation limit reached for this token." };
         if (msg.includes("ACCESS_REQUIRED"))
-          return { ok: false, error: "Akses tidak aktif. Masukkan token." };
-        return { ok: false, error: "Gagal mencatat generate." };
+          return { ok: false, error: "Access is inactive. Enter a token." };
+        return { ok: false, error: "Failed to record generation." };
       }
       const row = data?.[0];
       setState((s) => ({
@@ -130,7 +130,7 @@ export function useAccess(userEmail: string | null | undefined) {
   const createToken = useCallback(
     async (plan: "trial" | "pro"): Promise<{ ok: boolean; token?: string; error?: string }> => {
       const supabase = createClient();
-      if (!supabase) return { ok: false, error: "Client tidak siap." };
+      if (!supabase) return { ok: false, error: "Client is not ready." };
       const bytes = new Uint8Array(24);
       crypto.getRandomValues(bytes);
       const token =
@@ -147,8 +147,8 @@ export function useAccess(userEmail: string | null | undefined) {
       });
       if (error) {
         const msg = error.message || "";
-        if (msg.includes("OWNER_ONLY")) return { ok: false, error: "Hanya owner yang bisa membuat token." };
-        return { ok: false, error: "Gagal membuat token." };
+        if (msg.includes("OWNER_ONLY")) return { ok: false, error: "Only the owner can create tokens." };
+        return { ok: false, error: "Failed to create token." };
       }
       return { ok: true, token: full };
     },

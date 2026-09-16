@@ -333,7 +333,7 @@ export default function CollectionsPage() {
         {/* Cloud Collections Section */}
         <div>
           {(localDraft || collections.length > 0) && (
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Koleksi</h2>
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Collections</h2>
           )}
           {loadingCollections ? (
             <div className="flex items-center justify-center py-20">
@@ -345,7 +345,7 @@ export default function CollectionsPage() {
                 <FolderOpen className="w-16 h-16 text-muted-foreground mb-4" />
                 <h2 className="text-xl font-semibold mb-2">No Collections Yet</h2>
                 <p className="text-muted-foreground mb-6">
-                  Klik &quot;Save Draft&quot; di generator untuk menyimpan trait kamu.
+                  Click &quot;Save Draft&quot; in the generator to save your traits.
                 </p>
                 <Link href="/">
                   <Button>

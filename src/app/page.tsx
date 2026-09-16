@@ -159,8 +159,8 @@ const RULE_LABELS: Record<RuleType, string> = {
 };
 
 const LAYER_RULE_LABELS: Record<LayerRuleType, string> = {
-  layer_doesnt_mix: "Tidak Muncul Bersamaan Dengan",
-  layer_requires: "Membutuhkan Layer",
+  layer_doesnt_mix: "Doesn't Appear With",
+  layer_requires: "Requires Layer",
 };
 
 const RULE_COLORS: Record<RuleType, "default" | "secondary" | "destructive" | "outline"> = {
@@ -917,16 +917,16 @@ function NFTGeneratorContent() {
 
   const generateCollection = async () => {
     if (!user) {
-      setGenerationNotice("Login diperlukan sebelum generate.");
+      setGenerationNotice("Login required before generating.");
       return;
     }
     if (!access.hasAccess) {
-      setGenerationNotice("Masukkan token akses sebelum generate.");
+      setGenerationNotice("Enter an access token before generating.");
       return;
     }
     const quota = await access.consume(collectionSize);
     if (!quota.ok) {
-      setGenerationNotice(quota.error ?? "Generate tidak tersedia.");
+      setGenerationNotice(quota.error ?? "Generation unavailable.");
       return;
     }
     if (
@@ -1067,7 +1067,7 @@ function NFTGeneratorContent() {
     if (error) {
       console.error("Google login error:", error);
       alert(
-        "Login gagal. Pastikan URL callback OAuth sudah ditambahkan di Supabase Auth settings."
+        "Login failed. Make sure the OAuth callback URL is added in Supabase Auth settings."
       );
     }
   };
@@ -1081,7 +1081,7 @@ function NFTGeneratorContent() {
     if (!user || generatedNFTs.length === 0) return;
     const normalizedName = collectionName.trim();
     if (!normalizedName) {
-      alert("Nama koleksi wajib diisi.");
+      alert("Collection name is required.");
       return;
     }
 
@@ -1143,7 +1143,7 @@ function NFTGeneratorContent() {
       const failed = results.filter((r) => r.status === "rejected");
       if (failed.length > 0) {
         console.error("Some uploads failed:", failed);
-        alert("Sebagian file gagal diupload ke Storage. Metadata tetap tersimpan.");
+        alert("Some files failed to upload to Storage. Metadata was still saved.");
       }
 
       // 3) Persist storage paths (metadata round-trip).
@@ -1187,7 +1187,7 @@ function NFTGeneratorContent() {
     }
 
     if (!collectionName.trim()) {
-      alert("Nama koleksi wajib diisi.");
+      alert("Collection name is required.");
       return;
     }
 
@@ -1200,15 +1200,15 @@ function NFTGeneratorContent() {
         savedAt: new Date().toISOString(),
       });
       localStorage.setItem("shiren_draft", payload);
-      alert("Draft berhasil disimpan!");
+      alert("Draft saved!");
     } catch (error) {
       console.error("Error saving draft:", error);
       if ((error as DOMException)?.name === "QuotaExceededError") {
         alert(
-          "Penyimpanan lokal penuh. Coba kurangi jumlah trait atau ukuran gambar."
+          "Local storage is full. Try reducing the number of traits or image size."
         );
       } else {
-        alert("Gagal menyimpan draft.");
+        alert("Failed to save draft.");
       }
     } finally {
       setIsSavingDraft(false);
@@ -1485,11 +1485,11 @@ function NFTGeneratorContent() {
       {!isSessionLoading && !user && (
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Masuk untuk melanjutkan</CardTitle>
+            <CardTitle className="text-lg">Sign in to continue</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Login dengan Google untuk membuka NFT Generator, lalu masukkan token akses dari owner.
+              Sign in with Google to open the NFT Generator, then enter the access token from the owner.
             </p>
             <Button onClick={handleGoogleLogin} className="gap-2">
               <LogIn className="w-4 h-4" />
@@ -1501,11 +1501,11 @@ function NFTGeneratorContent() {
       {!isSessionLoading && user && !access.loading && !access.hasAccess && (
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Aktivasi Token</CardTitle>
+            <CardTitle className="text-lg">Activate Token</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Masukkan token akses dari owner untuk mulai generate.
+              Enter the owner access token to start generating.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <Input
@@ -1519,13 +1519,13 @@ function NFTGeneratorContent() {
                   setIsActivatingToken(true);
                   setAccessMessage(null);
                   const res = await access.activate(accessToken);
-                  setAccessMessage(res.ok ? "Token aktif." : res.error ?? "Gagal aktivasi.");
+                  setAccessMessage(res.ok ? "Token activated." : res.error ?? "Activation failed.");
                   if (res.ok) setAccessToken("");
                   setIsActivatingToken(false);
                 }}
                 disabled={isActivatingToken || accessToken.trim().length === 0}
               >
-                {isActivatingToken ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Aktivasi"}
+                {isActivatingToken ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Activate"}
               </Button>
             </div>
             {accessMessage && (
@@ -1537,7 +1537,7 @@ function NFTGeneratorContent() {
       {access.isOwner && (
         <Card className="border-primary/40 bg-primary/5 backdrop-blur-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Owner: Buat Token</CardTitle>
+            <CardTitle className="text-lg">Owner: Create Token</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex gap-3">
@@ -1548,11 +1548,11 @@ function NFTGeneratorContent() {
                   setIsCreatingToken(true);
                   const res = await access.createToken("trial");
                   setIssuedToken(res.token ?? null);
-                  setAccessMessage(res.ok ? "Token trial dibuat. Copy sekarang, tidak bisa dilihat lagi." : res.error ?? null);
+                  setAccessMessage(res.ok ? "Trial token created. Copy it now, it won't be shown again." : res.error ?? null);
                   setIsCreatingToken(false);
                 }}
               >
-                Trial 7 hari / 2.000 generate
+                Trial: 7 days / 2,000 generations
               </Button>
               <Button
                 variant="outline"
@@ -1561,11 +1561,11 @@ function NFTGeneratorContent() {
                   setIsCreatingToken(true);
                   const res = await access.createToken("pro");
                   setIssuedToken(res.token ?? null);
-                  setAccessMessage(res.ok ? "Token pro dibuat. Copy sekarang, tidak bisa dilihat lagi." : res.error ?? null);
+                  setAccessMessage(res.ok ? "Pro token created. Copy it now, it won't be shown again." : res.error ?? null);
                   setIsCreatingToken(false);
                 }}
               >
-                Pro 30 hari / Unlimited
+                Pro: 30 days / Unlimited
               </Button>
             </div>
             {issuedToken && (
@@ -1578,9 +1578,9 @@ function NFTGeneratorContent() {
                   onClick={async () => {
                     try {
                       await navigator.clipboard.writeText(issuedToken);
-                      setAccessMessage("Token disalin.");
+                      setAccessMessage("Token copied.");
                     } catch {
-                      setAccessMessage("Copy gagal. Pilih token lalu copy manual.");
+                      setAccessMessage("Copy failed. Select the token and copy manually.");
                     }
                   }}
                 >
@@ -1594,9 +1594,9 @@ function NFTGeneratorContent() {
       )}
       {access.hasAccess && (
         <p className="text-xs text-muted-foreground">
-          Plan: {access.plan === "pro" ? "Pro (unlimited)" : "Trial"} · Sisa generate:{" "}
+          Plan: {access.plan === "pro" ? "Pro (unlimited)" : "Trial"} · Remaining generations:{" "}
           {access.maxGenerations === 0 ? "unlimited" : Math.max(0, access.maxGenerations - access.usedGenerations)}
-          {access.expiresAt ? ` · aktif sampai ${new Date(access.expiresAt).toLocaleDateString()}` : ""}
+          {access.expiresAt ? ` · active until ${new Date(access.expiresAt).toLocaleDateString()}` : ""}
         </p>
       )}
       {access.hasAccess && (
@@ -1611,7 +1611,7 @@ function NFTGeneratorContent() {
                     </CardTitle>
                     <Button onClick={addCategory} size="sm" className="gap-2">
                       <FolderPlus className="w-4 h-4" />
-                      Tambah Layer
+                      Add Layer
                     </Button>
                   </div>
                   <p className="text-sm text-muted-foreground">
@@ -1626,10 +1626,10 @@ function NFTGeneratorContent() {
                           <FolderPlus className="w-8 h-8 text-muted-foreground" />
                         </div>
                         <p className="text-muted-foreground mb-2">
-                          Belum ada layer
+                          No layers yet
                         </p>
                         <p className="text-sm text-muted-foreground/70">
-                          Klik &quot;Tambah Layer&quot; untuk memulai
+                          Click &quot;Add Layer&quot; to get started
                         </p>
                       </div>
                     ) : (
@@ -1768,7 +1768,7 @@ function NFTGeneratorContent() {
                                   <div className="flex flex-col items-center gap-2">
                                     <Upload className="w-8 h-8 text-muted-foreground" />
                                     <span className="text-sm text-muted-foreground">
-                                      Drop gambar atau klik untuk upload
+                                      Drop images or click to upload
                                     </span>
                                     <span className="text-xs text-muted-foreground/70">
                                       PNG, JPG, WEBP (transparan lebih baik)
@@ -1932,7 +1932,7 @@ function NFTGeneratorContent() {
                     <div className="flex flex-col sm:flex-row gap-4 items-end">
                       <div className="flex-1 space-y-2">
                         <label className="text-sm text-muted-foreground">
-                          Nama Koleksi
+                          Collection Name
                         </label>
                         <Input
                           value={collectionName}
@@ -2095,10 +2095,10 @@ function NFTGeneratorContent() {
                           <Sparkles className="w-10 h-10 text-primary" />
                         </div>
                         <p className="text-muted-foreground mb-2">
-                          Belum ada NFT yang digenerate
+                          No NFTs generated yet
                         </p>
                         <p className="text-sm text-muted-foreground/70">
-                          Upload traits dan klik Generate untuk mulai
+                          Upload traits and click Generate to start
                         </p>
                       </div>
                     ) : (
@@ -2162,9 +2162,9 @@ function NFTGeneratorContent() {
           {!selectedTrait || !selectedTrait.image ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center text-destructive py-10">
               <AlertTriangle className="w-8 h-8 mb-2" />
-              <p className="font-semibold">Trait data tidak ditemukan atau sudah dihapus.</p>
+              <p className="font-semibold">Trait data not found or has been deleted.</p>
               <Button variant="outline" className="mt-4" onClick={() => setRuleDialogOpen(false)}>
-                Tutup
+                Close
               </Button>
             </div>
           ) : (
@@ -2177,7 +2177,7 @@ function NFTGeneratorContent() {
                   </h4>
                   {currentTraitRules.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      Belum ada rules untuk trait ini
+                      No rules for this trait yet
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -2192,7 +2192,7 @@ function NFTGeneratorContent() {
                             </Badge>
                             {rule.type === "appears_at_least" ? (
                               <span className="text-sm">
-                                Min: <strong>{rule.value}x</strong> dalam koleksi
+                                Min: <strong>{rule.value}x</strong> in the collection
                               </span>
                             ) : (
                               <div className="flex flex-wrap gap-1">
@@ -2396,7 +2396,7 @@ function NFTGeneratorContent() {
                   const layer = categories.find(c => c.id === selectedLayerId);
                   const rules = layer?.layerRules || [];
                   if (rules.length === 0) {
-                    return <p className="text-sm text-muted-foreground">Belum ada rules untuk layer ini</p>;
+                    return <p className="text-sm text-muted-foreground">No rules for this layer yet</p>;
                   }
                   return (
                     <div className="space-y-2">
@@ -2464,7 +2464,7 @@ function NFTGeneratorContent() {
                       onValueChange={setNewLayerRuleTarget}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Pilih layer..." />
+                        <SelectValue placeholder="Select a layer..." />
                       </SelectTrigger>
                       <SelectContent>
                         {categories
