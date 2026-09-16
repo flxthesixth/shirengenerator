@@ -55,6 +55,7 @@ import {
   FolderOpen,
   Sun,
   Moon,
+  Copy,
 } from "lucide-react";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -1600,7 +1601,24 @@ function NFTGeneratorContent() {
               </Button>
             </div>
             {issuedToken && (
-              <Input readOnly value={issuedToken} onFocus={(e) => e.currentTarget.select()} className="font-mono bg-secondary/30" />
+              <div className="flex gap-2">
+                <Input readOnly value={issuedToken} onFocus={(e) => e.currentTarget.select()} className="font-mono bg-secondary/30" />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="gap-2"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(issuedToken);
+                      setAccessMessage("Token disalin.");
+                    } catch {
+                      setAccessMessage("Copy gagal. Pilih token lalu copy manual.");
+                    }
+                  }}
+                >
+                  <Copy className="w-4 h-4" /> Copy
+                </Button>
+              </div>
             )}
             {accessMessage && <p className="text-xs text-muted-foreground">{accessMessage}</p>}
           </CardContent>

@@ -83,7 +83,7 @@ export function useAccess(userEmail: string | null | undefined) {
       if (error) {
         const msg = error.message || "";
         if (msg.includes("TOKEN_INVALID")) return { ok: false, error: "Token tidak dikenal atau sudah dicabut." };
-        return { ok: false, error: "Gagal aktivasi token." };
+        return { ok: false, error: `Gagal aktivasi token: ${msg || "error tidak diketahui"}` };
       }
       const row = data?.[0];
       setState({
