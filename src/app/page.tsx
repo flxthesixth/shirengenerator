@@ -1402,32 +1402,6 @@ function NFTGeneratorContent() {
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-secondary/50 rounded-lg px-4 py-2">
-                  <Settings className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Canvas:</span>
-                  <Select
-                    value={`${canvasSize.width}x${canvasSize.height}`}
-                    onValueChange={(value) => {
-                      const [width, height] = value.split("x").map(Number);
-                      setCanvasSize({ width, height });
-                    }}
-                  >
-                    <SelectTrigger className="w-[180px] h-8 bg-transparent border-border/50">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="512x512">512 × 512 (SD)</SelectItem>
-                      <SelectItem value="1024x1024">1024 × 1024 (HD)</SelectItem>
-                      <SelectItem value="1280x720">1280 × 720 (HD 16:9)</SelectItem>
-                      <SelectItem value="1920x1080">1920 × 1080 (Full HD)</SelectItem>
-                      <SelectItem value="2048x2048">2048 × 2048 (2K)</SelectItem>
-                      <SelectItem value="3840x2160">3840 × 2160 (4K)</SelectItem>
-                      <SelectItem value="500x500">500 × 500 (OpenSea)</SelectItem>
-                      <SelectItem value="350x350">350 × 350 (Twitter PFP)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
                 {isSessionLoading ? (
                   <div className="w-10 h-10 rounded-full bg-secondary/50 animate-pulse" />
                 ) : user ? (
@@ -1499,13 +1473,7 @@ function NFTGeneratorContent() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                ) : (
-                  <Button onClick={handleGoogleLogin} variant="outline" className="gap-2">
-                    <LogIn className="w-4 h-4" />
-                    <span className="hidden sm:inline">Login with Google</span>
-                    <span className="sm:hidden">Login</span>
-                  </Button>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
